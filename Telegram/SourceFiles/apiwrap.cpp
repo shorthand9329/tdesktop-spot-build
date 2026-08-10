@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_polls.h"
 #include "api/api_sending.h"
 #include "api/api_text_entities.h"
+#include "api/api_text_crypto.h"
 #include "api/api_todo_lists.h"
 #include "api/api_self_destruct.h"
 #include "api/api_sensitive_content.h"
@@ -2286,9 +2287,17 @@ void ApiWrap::saveDraftsToCloud() {
 		if (cloudDraft->suggest) {
 			flags |= MTPmessages_SaveDraft::Flag::f_suggested_post;
 		}
+		auto draftText = textWithTags.text;
+		auto draftEntities = TextUtilities::ConvertTextTagsToEntities(
+			textWithTags.tags);
+		if (!draftText.isEmpty()) {
+			draftText = Api::TextCrypto::EncryptForSending(draftText);
+			draftEntities = {};
+			flags &= ~MTPmessages_SaveDraft::Flag::f_entities;
+		}
 		auto entities = Api::EntitiesToMTP(
 			_session,
-			TextUtilities::ConvertTextTagsToEntities(textWithTags.tags),
+			draftEntities,
 			Api::ConvertOption::SkipLocal);
 
 		history->startSavingCloudDraft(topicRootId, monoforumPeerId);
@@ -2296,7 +2305,7 @@ void ApiWrap::saveDraftsToCloud() {
 			MTP_flags(flags),
 			ReplyToForMTP(history, cloudDraft->reply),
 			history->peer->input(),
-			MTP_string(textWithTags.text),
+			MTP_string(draftText),
 			entities,
 			Data::WebPageForMTP(
 				cloudDraft->webpage,
@@ -4264,7 +4273,10 @@ void ApiWrap::sendMessage(
 			peer->id,
 			sending.text);
 
-		MTPstring msgText(MTP_string(sending.text));
+		const auto encryptedText = sending.text.isEmpty()
+			? QString()
+			: Api::TextCrypto::EncryptForSending(sending.text);
+		MTPstring msgText(MTP_string(encryptedText));
 		auto flags = NewMessageFlags(peer);
 		auto sendFlags = MTPmessages_SendMessage::Flags(0);
 		auto mediaFlags = MTPmessages_SendMedia::Flags(0);
@@ -4313,10 +4325,12 @@ void ApiWrap::sendMessage(
 			sendFlags |= MTPmessages_SendMessage::Flag::f_silent;
 			mediaFlags |= MTPmessages_SendMedia::Flag::f_silent;
 		}
-		const auto sentEntities = Api::EntitiesToMTP(
-			_session,
-			sending.entities,
-			Api::ConvertOption::SkipLocal);
+		const auto sentEntities = sending.text.isEmpty()
+			? Api::EntitiesToMTP(
+				_session,
+				sending.entities,
+				Api::ConvertOption::SkipLocal)
+			: MTPVector<MTPMessageEntity>();
 		if (!sentEntities.v.isEmpty()) {
 			sendFlags |= MTPmessages_SendMessage::Flag::f_entities;
 			mediaFlags |= MTPmessages_SendMedia::Flag::f_entities;
@@ -4732,6 +4746,10 @@ void ApiWrap::sendMediaWithRandomId(
 
 	auto caption = item->originalText();
 	TextUtilities::Trim(caption);
+	if (!caption.text.isEmpty()) {
+		caption.text = Api::TextCrypto::EncryptForSending(caption.text);
+		caption.entities = {};
+	}
 	auto sentEntities = Api::EntitiesToMTP(
 		_session,
 		caption.entities,

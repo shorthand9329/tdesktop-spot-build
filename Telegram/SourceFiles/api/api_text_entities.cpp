@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "api/api_text_entities.h"
 
+#include "api/api_text_crypto.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
@@ -433,8 +434,9 @@ TextWithEntities ParseTextWithEntities(
 		Main::Session *session,
 		const MTPTextWithEntities &text) {
 	const auto &data = text.data();
+	const auto raw = qs(data.vtext());
 	return {
-		.text = qs(data.vtext()),
+		.text = TextCrypto::DecryptForDisplay(raw),
 		.entities = EntitiesFromMTP(session, data.ventities().v),
 	};
 }

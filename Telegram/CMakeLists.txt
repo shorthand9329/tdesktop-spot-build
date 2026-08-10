@@ -174,6 +174,8 @@ PRIVATE
     api/api_send_progress.h
     api/api_sending.cpp
     api/api_sending.h
+    api/api_file_crypto.cpp
+    api/api_file_crypto.h
     api/api_sensitive_content.cpp
     api/api_sensitive_content.h
     api/api_single_message_search.cpp
@@ -188,6 +190,8 @@ PRIVATE
     api/api_stickers_creator.h
     api/api_suggest_post.cpp
     api/api_suggest_post.h
+    api/api_text_crypto.cpp
+    api/api_text_crypto.h
     api/api_text_entities.cpp
     api/api_text_entities.h
     api/api_todo_lists.cpp

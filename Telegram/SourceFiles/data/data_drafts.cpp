@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_drafts.h"
 
 #include "api/api_text_entities.h"
+#include "api/api_text_crypto.h"
 #include "ui/widgets/fields/input_field.h"
 #include "chat_helpers/message_field.h"
 #include "history/history.h"
@@ -81,12 +82,16 @@ void ApplyPeerCloudDraft(
 	if (history->skipCloudDraftUpdate(topicRootId, monoforumPeerId, date)) {
 		return;
 	}
+	const auto rawText = qs(draft.vmessage());
+	const auto decryptedText = Api::TextCrypto::DecryptForDisplay(rawText);
 	const auto textWithTags = TextWithTags{
-		qs(draft.vmessage()),
-		TextUtilities::ConvertEntitiesToTextTags(
-			Api::EntitiesFromMTP(
-				session,
-				draft.ventities().value_or_empty()))
+		decryptedText,
+		(decryptedText == rawText)
+			? TextUtilities::ConvertEntitiesToTextTags(
+				Api::EntitiesFromMTP(
+					session,
+					draft.ventities().value_or_empty()))
+			: TextWithTags::Tags()
 	};
 	auto replyTo = draft.vreply_to()
 		? ReplyToFromMTP(history, *draft.vreply_to())

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "api/api_media.h"
 #include "api/api_text_entities.h"
+#include "api/api_text_crypto.h"
 #include "base/random.h"
 #include "ui/boxes/confirm_box.h"
 #include "data/business/data_shortcut_messages.h"
@@ -312,10 +313,15 @@ mtpRequestId EditMessage(
 	const auto api = &session->api();
 
 	const auto text = textWithEntities.text;
-	const auto sentEntities = EntitiesToMTP(
-		session,
-		textWithEntities.entities,
-		ConvertOption::SkipLocal);
+	const auto encryptedText = text.isEmpty()
+		? QString()
+		: TextCrypto::EncryptForSending(text);
+	const auto sentEntities = text.isEmpty()
+		? EntitiesToMTP(
+			session,
+			textWithEntities.entities,
+			ConvertOption::SkipLocal)
+		: MTPVector<MTPMessageEntity>();
 	const auto media = item->media();
 
 	const auto updateRecentStickers = inputMedia.has_value()
@@ -337,7 +343,7 @@ mtpRequestId EditMessage(
 		MTP_flags(flags),
 		item->history()->peer->input(),
 		MTP_int(id),
-		MTP_string(text),
+		MTP_string(encryptedText),
 		inputMedia.value_or(Data::WebPageForMTP(webpage, text.isEmpty())),
 		MTPReplyMarkup(),
 		sentEntities,

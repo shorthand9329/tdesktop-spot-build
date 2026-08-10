@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/file_upload.h"
 
+#include "api/api_file_crypto.h"
 #include "api/api_editing.h"
 #include "api/api_send_progress.h"
 #include "storage/localimageloader.h"
@@ -67,6 +68,46 @@ constexpr auto kAcceptAsFastIfTotalAtLeast = 512 * 1024;
 
 [[nodiscard]] const char *ThumbnailFormat(const QString &mime) {
 	return Core::IsMimeSticker(mime) ? "WEBP" : "JPG";
+}
+
+[[nodiscard]] bool ShouldEncryptUpload(not_null<FilePrepareResult*> file) {
+	return (file->type == SendMediaType::File
+		|| file->type == SendMediaType::ThemeFile
+		|| file->type == SendMediaType::Audio
+		|| file->type == SendMediaType::Round)
+		&& !Core::IsMimeSticker(file->filemime);
+}
+
+[[nodiscard]] bool EnsureEncryptedUpload(not_null<FilePrepareResult*> file) {
+	if (!ShouldEncryptUpload(file)) {
+		return true;
+	}
+	auto content = file->content;
+	if (content.isEmpty() && !file->filepath.isEmpty()) {
+		auto source = QFile(file->filepath);
+		if (source.open(QIODevice::ReadOnly)) {
+			content = source.readAll();
+		}
+	}
+	if (content.isEmpty()) {
+		return false;
+	}
+	const auto encrypted = Api::FileCrypto::EncryptPackage(
+		content,
+		file->filename,
+		file->filemime);
+	if (encrypted.isEmpty()) {
+		return false;
+	}
+	if (!file->filename.endsWith(u".enc"_q, Qt::CaseInsensitive)) {
+		file->filename += u".enc"_q;
+	}
+	file->filemime = u"application/octet-stream"_q;
+	file->filesize = encrypted.size();
+	file->partssize = encrypted.size();
+	file->filepath = QString();
+	file->content = encrypted;
+	return true;
 }
 
 } // namespace
@@ -358,6 +399,10 @@ void Uploader::upload(
 				file->videoCover->photo,
 				file->videoCover->photoThumbs);
 		}
+	}
+	if (!EnsureEncryptedUpload(file.get())) {
+		_documentFailed.fire_copy(itemId);
+		return;
 	}
 	_queue.push_back({ itemId, file });
 	if (!_nextTimer.isActive()) {

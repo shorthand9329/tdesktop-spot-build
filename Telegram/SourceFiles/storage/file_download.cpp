@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/file_download.h"
 
+#include "api/api_file_crypto.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "data/data_file_origin.h"
@@ -427,6 +428,18 @@ QByteArray FileLoader::readLoadedPartBack(int64 offset, int size) {
 
 bool FileLoader::finalizeResult() {
 	Expects(!_finished);
+
+	if (auto decrypted = Api::FileCrypto::DecryptPackage(_data)) {
+		_data = std::move(decrypted->content);
+		_fullSize = _data.size();
+		if (!_filename.isEmpty() && !decrypted->filename.isEmpty()) {
+			const auto info = QFileInfo(_filename);
+			if (info.fileName().endsWith(u".enc"_q, Qt::CaseInsensitive)) {
+				_filename = info.dir().absoluteFilePath(decrypted->filename);
+				_file.setFileName(_filename);
+			}
+		}
+	}
 
 	if (!_filename.isEmpty() && (_toCache == LoadToCacheAsWell)) {
 		if (!_fileIsOpen) {

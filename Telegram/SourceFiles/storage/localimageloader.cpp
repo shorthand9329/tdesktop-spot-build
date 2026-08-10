@@ -738,6 +738,10 @@ void FileLoadTask::process(ProcessArgs &&args) {
 			}
 			const auto mimeType = Core::MimeTypeForData(_content);
 			filemime = mimeType.name();
+			if (filemime.startsWith(u"image/"_q)
+				&& !Core::IsMimeSticker(filemime)) {
+				_type = SendMediaType::File;
+			}
 			if (!Core::IsMimeSticker(filemime)
 				&& fullimageformat != u"jpeg"_q) {
 				fullimage = Images::Opaque(std::move(fullimage));
@@ -766,14 +770,9 @@ void FileLoadTask::process(ProcessArgs &&args) {
 			}
 		}
 		if (!fullimage.isNull() && fullimage.width() > 0) {
-			if (_type == SendMediaType::Photo) {
-				if (ValidateThumbDimensions(fullimage.width(), fullimage.height())) {
-					filesize = -1; // Fill later.
-					filemime = Core::MimeTypeForName("image/jpeg").name();
-					filename = filedialogDefaultName(u"image"_q, u".jpg"_q, QString(), true);
-				} else {
-					_type = SendMediaType::File;
-				}
+			if (_type == SendMediaType::Photo
+				&& !Core::IsMimeSticker(filemime)) {
+				_type = SendMediaType::File;
 			}
 			if (_type == SendMediaType::File) {
 				filemime = Core::MimeTypeForName("image/png").name();
