@@ -44,7 +44,7 @@ on:
 jobs:
 
   windows:
-    name: Windows (x64)
+    name: Windows cache (x64)
     runs-on: windows-latest
 
     strategy:
@@ -54,8 +54,8 @@ jobs:
         generator: [""]
 
     env:
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
+      UPLOAD_ARTIFACT: "false"
+      ONLY_CACHE: "true"
       PREPARE_PATH: "Telegram/build/prepare/prepare.py"
 
     defaults:
