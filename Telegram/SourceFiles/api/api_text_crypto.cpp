@@ -17,7 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 
-#include <gsl/gsl_util>
+#include <gsl/util>
 #include <cstring>
 
 namespace Api::TextCrypto {
