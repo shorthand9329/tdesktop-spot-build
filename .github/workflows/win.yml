@@ -84,6 +84,7 @@ jobs:
         shell: bash
         run: |
           sed -i "s/'-Werror=dev', '-Werror=deprecated'/'-Wno-error=author', '-Wno-error=policy', '-Wno-error=deprecated'/" "$TBUILD/$REPO_NAME/cmake/run_cmake.py"
+          perl -0pi -e "s/def stage\\(name, commands, location = 'Libraries'\\):/def stage(name, commands, location = 'Libraries'):\\n    if name in os.environ.get('TDESKTOP_SKIP_PREPARE_STAGES', '').split(','):\\n        return/" "$TBUILD/$REPO_NAME/Telegram/build/prepare/prepare.py"
 
       - name: First set up.
         shell: bash
@@ -147,6 +148,8 @@ jobs:
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
       - name: Libraries.
+        env:
+          TDESKTOP_SKIP_PREPARE_STAGES: breakpad,crashpad
         run: |
           %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent ${{ matrix.qt }}
 
