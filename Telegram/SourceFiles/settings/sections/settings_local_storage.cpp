@@ -23,10 +23,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/continuous_sliders.h"
 #include "ui/widgets/labels.h"
+#include "ui/wrap/padding_wrap.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
 #include "ui/effects/animated_string.h"
 #include "ui/effects/animations.h"
+#include "ui/effects/drifting_particles.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/effects/shake_animation.h"
 #include "ui/emoji_config.h"
@@ -39,8 +41,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "ui/widgets/tooltip.h"
 #include "window/window_session_controller.h"
+#include "styles/style_background_preview_box.h"
 #include "styles/style_boxes.h"
+#include "styles/style_edit_peer_members.h"
 #include "styles/style_layers.h"
+#include "styles/style_settings_local_storage.h"
 
 #include <QtCore/QStorageInfo>
 
@@ -163,8 +168,8 @@ QColor PartColor(int index) {
 	case 0: return st::statisticsChartLineLightblue->c;
 	case 1: return st::statisticsChartLineOrange->c;
 	case 2: return st::statisticsChartLineLightgreen->c;
-	case 3: return st::statisticsChartLineGreen->c;
-	case 4: return st::statisticsChartLinePurple->c;
+	case 3: return st::statisticsChartLinePurple->c;
+	case 4: return st::statisticsChartLineGreen->c;
 	case 5: return st::statisticsChartLineBlue->c;
 	}
 	return st::statisticsChartLineCyan->c;
@@ -177,7 +182,19 @@ QString PartTitle(int index, size_type count) {
 	case 2: return tr::lng_local_storage_voice(tr::now, lt_count, count);
 	case 3: return tr::lng_local_storage_round(tr::now, lt_count, count);
 	case 4: return tr::lng_local_storage_animation(tr::now, lt_count, count);
-	case 5: return tr::lng_local_storage_media(tr::now);
+	case 5: return tr::lng_local_storage_media_title(tr::now);
+	}
+	return QString();
+}
+
+QString PartName(int index) {
+	switch (index) {
+	case 0: return tr::lng_local_storage_image_title(tr::now);
+	case 1: return tr::lng_local_storage_sticker_title(tr::now);
+	case 2: return tr::lng_local_storage_voice_title(tr::now);
+	case 3: return tr::lng_local_storage_round_title(tr::now);
+	case 4: return tr::lng_local_storage_animation_title(tr::now);
+	case 5: return tr::lng_local_storage_media_title(tr::now);
 	}
 	return QString();
 }
@@ -270,111 +287,46 @@ not_null<Ui::SlideWrap<Ui::VerticalLayout>*> AddIslandWrap(
 		+ u" GB"_q;
 }
 
-[[nodiscard]] QImage GenerateCompleteStar(int size, float64 k) {
-	const auto ratio = style::DevicePixelRatio();
-	auto image = QImage(
-		size * ratio,
-		size * ratio,
-		QImage::Format_ARGB32_Premultiplied);
-	image.setDevicePixelRatio(ratio);
-	image.fill(Qt::transparent);
-
-	auto p = QPainter(&image);
-	auto hq = PainterHighQualityEnabler(p);
-	p.setPen(Qt::NoPen);
-	p.setBrush(Qt::white);
-
-	const auto half = size / 2.;
-	const auto mid = half * k;
-	auto path = QPainterPath();
-	path.moveTo(0, half);
-	path.lineTo(mid, mid);
-	path.lineTo(half, 0);
-	path.lineTo(size - mid, mid);
-	path.lineTo(size, half);
-	path.lineTo(size - mid, size - mid);
-	path.lineTo(half, size);
-	path.lineTo(mid, size - mid);
-	path.closeSubpath();
-	p.drawPath(path);
-
-	return image;
-}
-
 class CompleteParticles final {
 public:
+	CompleteParticles();
+
 	void paint(
 		QPainter &p,
 		QRect rect,
 		QPointF center,
 		float64 alpha,
-		crl::time now,
 		bool paused);
 
 private:
-	struct Particle {
-		float64 x = 0.;
-		float64 y = 0.;
-		float64 vecX = 0.;
-		float64 vecY = 0.;
-		float64 inProgress = 0.;
-		float64 baseAlpha = 0.;
-		crl::time lifeTime = 0;
-		int starIndex = 0;
-	};
-
-	void regenerate(Particle &particle, QPointF center, crl::time now);
-	[[nodiscard]] const QImage &star(int index);
-
-	std::vector<Particle> _particles;
-	std::array<QImage, 3> _stars;
+	Ui::DriftingParticles _particles;
 	QImage _layer;
-	std::array<float64, 3> _angle = { { 0., 0., 0. } };
-	crl::time _prevTime = 0;
-	crl::time _pausedAt = 0;
-	crl::time _pauseOffset = 0;
 
 };
 
-const QImage &CompleteParticles::star(int index) {
-	auto &image = _stars[index];
-	if (image.isNull()) {
-		const int sizes[] = {
-			st::localStorageCompleteStar1,
-			st::localStorageCompleteStar2,
-			st::localStorageCompleteStar3,
-		};
-		image = GenerateCompleteStar(sizes[index], 0.85);
+CompleteParticles::CompleteParticles()
+: _particles([] {
+	const int sizes[] = {
+		st::localStorageCompleteStar1,
+		st::localStorageCompleteStar2,
+		st::localStorageCompleteStar3,
+	};
+	auto sprites = std::vector<Ui::DriftingSprite>();
+	sprites.reserve(std::size(sizes));
+	for (const auto size : sizes) {
+		sprites.push_back({
+			.image = Ui::FourPointStarImage({ .size = size }),
+		});
 	}
-	return image;
-}
-
-void CompleteParticles::regenerate(
-		Particle &particle,
-		QPointF center,
-		crl::time now) {
-	auto bytes = std::array<uchar, 8>();
-	base::RandomFill(bytes.data(), bytes.size());
-	auto index = 0;
-	const auto next = [&] { return bytes[index++] / 255.; };
-
-	particle.starIndex = std::min(2, int(next() * 3.));
-	particle.lifeTime = now + 2000 + crl::time(next() * 1000.);
-
-	const auto field = float64(st::localStorageCompleteField);
-	const auto exclude = float64(st::localStorageCompleteExclude);
-	const auto radius = next() * (field - exclude) + exclude;
-	const auto angle = next() * 2. * M_PI;
-	particle.x = center.x() + radius * std::sin(angle);
-	particle.y = center.y() + radius * std::cos(angle);
-
-	const auto direction = std::atan2(
-		particle.y - center.y(),
-		particle.x - center.x());
-	particle.vecX = std::cos(direction);
-	particle.vecY = std::sin(direction);
-	particle.baseAlpha = (50 + int(next() * 50.)) / 100.;
-	particle.inProgress = 0.;
+	return Ui::DriftingParticles::Config{
+		.sprites = std::move(sprites),
+		.count = kCompleteParticlesCount,
+		.speed = float64(st::localStorageCompleteSpeed),
+		.excludeRadius = float64(st::localStorageCompleteExclude),
+		.orbit = true,
+		.checkBounds = true,
+	};
+}()) {
 }
 
 void CompleteParticles::paint(
@@ -382,44 +334,16 @@ void CompleteParticles::paint(
 		QRect rect,
 		QPointF center,
 		float64 alpha,
-		crl::time now,
 		bool paused) {
 	if (alpha <= 0.) {
 		return;
-	} else if (_particles.empty()) {
-		_particles.resize(kCompleteParticlesCount);
 	}
-
-	if (paused) {
-		if (!_pausedAt) {
-			_pausedAt = now;
-		}
-		now = _pausedAt - _pauseOffset;
-	} else {
-		if (_pausedAt) {
-			_pauseOffset += now - _pausedAt;
-			_pausedAt = 0;
-		}
-		now -= _pauseOffset;
-	}
-
-	if (!_prevTime) {
-		_prevTime = now;
-		for (auto &particle : _particles) {
-			regenerate(particle, center, now);
-		}
-	}
-	const auto diff = std::clamp(
-		now - _prevTime,
-		crl::time(4),
-		crl::time(50));
-	_prevTime = now;
-
-	if (!paused) {
-		_angle[0] += 360. * (diff / 40000.);
-		_angle[1] += 360. * (diff / 50000.);
-		_angle[2] += 360. * (diff / 60000.);
-	}
+	const auto field = float64(st::localStorageCompleteField);
+	_particles.setGeometry(
+		Rect(center.x() - field / 2., center.y() - field / 2., Size(field)),
+		rect,
+		QRectF());
+	_particles.setPaused(paused);
 
 	const auto ratio = style::DevicePixelRatio();
 	const auto pixelSize = rect.size() * ratio;
@@ -430,50 +354,9 @@ void CompleteParticles::paint(
 	_layer.fill(Qt::transparent);
 
 	auto lp = QPainter(&_layer);
-	auto hq = PainterHighQualityEnabler(lp);
-	const auto speed = st::localStorageCompleteSpeed * (diff / 660.);
-	for (auto &particle : _particles) {
-		const auto radians = _angle[particle.starIndex] * M_PI / 180.;
-		const auto cosA = std::cos(radians);
-		const auto sinA = std::sin(radians);
-		const auto dx = particle.x - center.x();
-		const auto dy = particle.y - center.y();
-		const auto drawX = center.x() + dx * cosA - dy * sinA;
-		const auto drawY = center.y() + dx * sinA + dy * cosA;
-
-		auto outProgress = 0.;
-		if (particle.lifeTime - now < 200) {
-			outProgress = std::clamp(
-				1. - (particle.lifeTime - now) / 150.,
-				0.,
-				1.);
-		}
-		const auto t = particle.inProgress - 1.;
-		const auto scale = t * t * (3. * t + 2.) + 1.;
-		const auto &image = star(particle.starIndex);
-		const auto side = image.width() / float64(ratio);
-
-		lp.save();
-		lp.setOpacity(particle.baseAlpha * (1. - outProgress));
-		lp.translate(drawX - rect.x(), drawY - rect.y());
-		lp.scale(scale, scale);
-		lp.drawImage(QPointF(-side / 2., -side / 2.), image);
-		lp.restore();
-
-		if (!paused) {
-			particle.x += particle.vecX * speed;
-			particle.y += particle.vecY * speed;
-			if (particle.inProgress < 1.) {
-				particle.inProgress = std::min(
-					particle.inProgress + diff / 200.,
-					1.);
-			}
-		}
-		if (now > particle.lifeTime
-			|| !rect.contains(QPoint(int(drawX), int(drawY)))) {
-			regenerate(particle, center, now);
-		}
-	}
+	lp.translate(-rect.x(), -rect.y());
+	_particles.paint(lp);
+	lp.resetTransform();
 	lp.setOpacity(1.);
 	lp.setCompositionMode(QPainter::CompositionMode_SourceIn);
 	auto gradient = QLinearGradient(
@@ -483,7 +366,7 @@ void CompleteParticles::paint(
 	gradient.setColorAt(0.07, QColor(0x6e, 0xd5, 0x56));
 	gradient.setColorAt(0.93, QColor(0x41, 0xba, 0x71));
 	gradient.setColorAt(1., QColor(0x41, 0xba, 0x71, 0));
-	lp.fillRect(QRect(QPoint(), rect.size()), gradient);
+	lp.fillRect(Rect(rect.size()), gradient);
 	lp.end();
 
 	p.setOpacity(alpha);
@@ -502,6 +385,9 @@ public:
 	void setParts(std::array<int64, kChartPartsCount> sizes, int64 total);
 	void setPartInfo(Fn<TextWithEntities(int)> info);
 	void setLoaded();
+	[[nodiscard]] int partPercent(int index) const {
+		return _percent[index];
+	}
 
 protected:
 	int resizeGetHeight(int newWidth) override;
@@ -644,7 +530,7 @@ void LocalStorage::Chart::drawParticles(
 			point.x() - center.x(),
 			point.y() - center.y());
 		const auto centerFade = std::min(distance / 64., 1.);
-		auto particleAlpha = 0.65
+		auto particleAlpha = 0.45
 			* alpha
 			* (-1.75 * std::abs(t - 0.5) + 1.)
 			* (0.25 * (std::sin(t * M_PI) - 1.) + 1.)
@@ -1000,8 +886,8 @@ void LocalStorage::Chart::paintEvent(QPaintEvent *e) {
 			center.x() - segmentMid,
 			center.y() - segmentMid,
 			Size(segmentMid * 2.));
-		const auto startAngle = qRound(-from * 16.);
-		const auto spanAngle = -qRound((to - from) * 16.);
+		const auto startAngle = int(base::SafeRound(-from * 16.));
+		const auto spanAngle = -int(base::SafeRound((to - from) * 16.));
 		p.drawArc(rect, startAngle, spanAngle);
 
 		const auto innerRadius = segmentOuter - segmentThickness;
@@ -1098,13 +984,7 @@ void LocalStorage::Chart::paintEvent(QPaintEvent *e) {
 	p.restore();
 
 	if (complete > 0.) {
-		_completeParticles.paint(
-			p,
-			rect(),
-			center,
-			complete,
-			crl::now(),
-			paused());
+		_completeParticles.paint(p, rect(), center, complete, paused());
 
 		auto gradient = QLinearGradient(
 			QPointF(center.x(), center.y() - outer),
@@ -1238,8 +1118,8 @@ void LocalStorage::DeviceBar::paintEvent(QPaintEvent *e) {
 	const auto radius = bar.height() / 2.;
 	const auto used = _total - _free;
 	const auto cacheColor = st::activeButtonBg->c;
-	const auto usedColor = st::windowSubTextFg->c;
-	const auto freeColor = st::windowBg->c;
+	const auto usedColor = st::scrollBg->c;
+	const auto freeColor = st::windowBgRipple->c;
 
 	auto path = QPainterPath();
 	path.addRoundedRect(bar, radius, radius);
@@ -1407,7 +1287,7 @@ class LocalStorage::Row final : public Ui::RippleButton {
 public:
 	Row(
 		QWidget *parent,
-		Fn<QString(size_type)> title,
+		const QString &title,
 		int chartIndex,
 		bool checked,
 		const Database::TaggedSummary &data);
@@ -1428,11 +1308,9 @@ protected:
 	QPoint prepareRippleStartPosition() const override;
 
 private:
-	QString titleText(const Database::TaggedSummary &data) const;
 	QString sizeText(const Database::TaggedSummary &data) const;
 	void toggle();
 
-	Fn<QString(size_type)> _titleFactory;
 	style::complex_color _checkColor;
 	style::Check _checkStyle;
 	Ui::RoundCheckView _check;
@@ -1448,17 +1326,16 @@ private:
 
 LocalStorage::Row::Row(
 	QWidget *parent,
-	Fn<QString(size_type)> title,
+	const QString &title,
 	int chartIndex,
 	bool checked,
 	const Database::TaggedSummary &data)
 : RippleButton(parent, st::defaultRippleAnimation)
-, _titleFactory(std::move(title))
 , _checkColor([=] { return PartColor(chartIndex); })
 , _checkStyle(st::localStorageCategoryCheck)
 , _check(_checkStyle, checked, [=] { Ui::RpWidget::update(); })
 , _percent(this, QString(), st::localStorageCategoryPercent)
-, _name(this, titleText(data), st::localStorageCategoryName)
+, _name(this, title, st::localStorageCategoryName)
 , _size(this, sizeText(data), st::localStorageCategorySize) {
 	_checkStyle.toggledFg = _checkColor.color();
 	_percent->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -1499,9 +1376,6 @@ void LocalStorage::Row::setRoundedTop(bool rounded) {
 }
 
 void LocalStorage::Row::update(const Database::TaggedSummary &data) {
-	if (data.count != 0) {
-		_name->setText(titleText(data));
-	}
 	_size->setText(sizeText(data));
 	resizeToWidth(width());
 }
@@ -1518,7 +1392,7 @@ int LocalStorage::Row::resizeGetHeight(int newWidth) {
 	const auto height = st::localStorageCategoryHeight;
 	const auto pad = st::localStorageCategoryPadding;
 	const auto checkSize = _check.getSize();
-	auto left = pad.left()
+	const auto left = pad.left()
 		+ checkSize.width()
 		+ st::localStorageCategoryCheckSkip;
 
@@ -1527,19 +1401,20 @@ int LocalStorage::Row::resizeGetHeight(int newWidth) {
 
 	_percent->resizeToWidth(_percent->textMaxWidth());
 	_percent->setVisible(_hasPercent);
-	if (_hasPercent) {
-		_percent->moveToLeft(
-			left,
-			(height - _percent->height()) / 2,
-			newWidth);
-		left += _percent->width() + st::localStorageCategoryPercentSkip;
-	}
-
+	const auto percentWidth = _hasPercent
+		? (st::localStorageCategoryPercentSkip + _percent->width())
+		: 0;
 	const auto nameAvailable = std::max(
-		_size->x() - st::localStorageCategoryPercentSkip - left,
+		_size->x() - st::localStorageCategoryPercentSkip - percentWidth - left,
 		0);
 	_name->resizeToWidth(std::min(_name->textMaxWidth(), nameAvailable));
 	_name->moveToLeft(left, (height - _name->height()) / 2, newWidth);
+	if (_hasPercent) {
+		_percent->moveToLeft(
+			left + _name->width() + st::localStorageCategoryPercentSkip,
+			(height - _percent->height()) / 2,
+			newWidth);
+	}
 	return height;
 }
 
@@ -1575,11 +1450,6 @@ QPoint LocalStorage::Row::prepareRippleStartPosition() const {
 	return mapFromGlobal(QCursor::pos());
 }
 
-QString LocalStorage::Row::titleText(
-		const Database::TaggedSummary &data) const {
-	return _titleFactory(data.count);
-}
-
 QString LocalStorage::Row::sizeText(
 		const Database::TaggedSummary &data) const {
 	return data.totalSize
@@ -1593,7 +1463,8 @@ LocalStorage::LocalStorage(
 : Section(parent, controller)
 , _session(&controller->session())
 , _db(&_session->data().cache())
-, _dbBig(&_session->data().cacheBigFile()) {
+, _dbBig(&_session->data().cacheBigFile())
+, _bottomSkipRounding(st::boxRadius, st::windowBgOver) {
 	const auto &settings = _session->local().cacheSettings();
 	const auto &settingsBig = _session->local().cacheBigFileSettings();
 	_totalSizeLimit = settings.totalSizeLimit + settingsBig.totalSizeLimit;
@@ -1618,6 +1489,10 @@ bool LocalStorage::paintOuter(
 void LocalStorage::showFinished() {
 	Section::showFinished();
 
+	_shown = true;
+	if (auto pending = base::take(_pendingStats)) {
+		update(std::move(pending->stats), std::move(pending->statsBig));
+	}
 	if (_clearButton) {
 		controller()->checkHighlightControl(
 			u"storage/clear-cache"_q,
@@ -1646,6 +1521,13 @@ void LocalStorage::updateRow(
 void LocalStorage::update(
 		Database::Stats &&stats,
 		Database::Stats &&statsBig) {
+	if (!_shown && !isVisible()) {
+		_pendingStats = PendingStats{
+			.stats = std::move(stats),
+			.statsBig = std::move(statsBig),
+		};
+		return;
+	}
 	_stats = std::move(stats);
 	_statsBig = std::move(statsBig);
 	for (const auto &entry : _rows) {
@@ -1744,22 +1626,12 @@ void LocalStorage::updateChart() {
 }
 
 void LocalStorage::updateCategoryPercents() {
-	const auto sizes = chartedSizes();
-	auto total = int64();
-	for (auto i = 0; i != kChartPartsCount; ++i) {
-		if (_selected[i]) {
-			total += sizes[i];
-		}
-	}
 	for (const auto &[tag, row] : _rows) {
 		const auto index = ChartIndexForTag(tag);
 		if (index < 0) {
 			continue;
 		}
-		const auto percent = (total > 0 && _selected[index])
-			? int(base::SafeRound(sizes[index] / float64(total) * 100.))
-			: 0;
-		row->entity()->setPercent(percent);
+		row->entity()->setPercent(_chart->partPercent(index));
 	}
 }
 
@@ -1965,7 +1837,6 @@ void LocalStorage::setupControls(not_null<Ui::VerticalLayout*> container) {
 	const auto createRow = [&](
 			not_null<Ui::VerticalLayout*> into,
 			uint16 tag,
-			Fn<QString(size_type)> title,
 			const Database::TaggedSummary &data) {
 		const auto chartIndex = ChartIndexForTag(tag);
 		const auto checked = _selected[chartIndex];
@@ -1973,7 +1844,7 @@ void LocalStorage::setupControls(not_null<Ui::VerticalLayout*> container) {
 			into,
 			object_ptr<Row>(
 				into,
-				std::move(title),
+				PartName(chartIndex),
 				chartIndex,
 				checked,
 				data)));
@@ -1989,23 +1860,10 @@ void LocalStorage::setupControls(not_null<Ui::VerticalLayout*> container) {
 	};
 	const auto createTagRow = [&](
 			not_null<Ui::VerticalLayout*> into,
-			uint8 tag,
-			auto &&titleFactory) {
+			uint8 tag) {
 		static const auto empty = Database::TaggedSummary();
 		const auto i = _stats.tagged.find(tag);
-		const auto &data = (i != end(_stats.tagged)) ? i->second : empty;
-		auto factory = std::forward<decltype(titleFactory)>(titleFactory);
-		auto title = [factory = std::move(factory)](size_type count) {
-			return factory(tr::now, lt_count, count);
-		};
-		createRow(
-			into,
-			tag,
-			std::move(title),
-			data);
-	};
-	auto mediaCacheTitle = [](size_type) {
-		return tr::lng_local_storage_media(tr::now);
+		createRow(into, tag, (i != end(_stats.tagged)) ? i->second : empty);
 	};
 
 	_chart = container->add(object_ptr<Chart>(container, controller()));
@@ -2050,31 +1908,12 @@ void LocalStorage::setupControls(not_null<Ui::VerticalLayout*> container) {
 
 	_categoriesWrap = AddIslandWrap(container);
 	const auto categoriesIsland = _categoriesWrap->entity();
-	createTagRow(
-		categoriesIsland,
-		Data::kImageCacheTag,
-		tr::lng_local_storage_image);
-	createTagRow(
-		categoriesIsland,
-		Data::kStickerCacheTag,
-		tr::lng_local_storage_sticker);
-	createTagRow(
-		categoriesIsland,
-		Data::kVoiceMessageCacheTag,
-		tr::lng_local_storage_voice);
-	createTagRow(
-		categoriesIsland,
-		Data::kVideoMessageCacheTag,
-		tr::lng_local_storage_round);
-	createTagRow(
-		categoriesIsland,
-		Data::kAnimationCacheTag,
-		tr::lng_local_storage_animation);
-	createRow(
-		categoriesIsland,
-		kFakeMediaCacheTag,
-		std::move(mediaCacheTitle),
-		_statsBig.full);
+	createTagRow(categoriesIsland, Data::kImageCacheTag);
+	createTagRow(categoriesIsland, Data::kStickerCacheTag);
+	createTagRow(categoriesIsland, Data::kVoiceMessageCacheTag);
+	createTagRow(categoriesIsland, Data::kVideoMessageCacheTag);
+	createTagRow(categoriesIsland, Data::kAnimationCacheTag);
+	createRow(categoriesIsland, kFakeMediaCacheTag, _statsBig.full);
 
 	_clearButton = categoriesIsland->add(
 		object_ptr<ClearButton>(categoriesIsland),
@@ -2088,9 +1927,7 @@ void LocalStorage::setupControls(not_null<Ui::VerticalLayout*> container) {
 				container,
 				std::move(text),
 				st::localStorageAbout),
-			st::localStorageAboutMargin,
-			style::al_top);
-		label->setTryMakeSimilarLines(true);
+			st::localStorageAboutMargin);
 		label->setAttribute(Qt::WA_TransparentForMouseEvents);
 	};
 
@@ -2118,12 +1955,29 @@ template <
 not_null<Ui::MediaSlider*> LocalStorage::createLimitsSlider(
 		not_null<Ui::VerticalLayout*> container,
 		int valuesCount,
+		const QString &name,
 		Convert &&convert,
 		Value currentValue,
 		Callback &&callback) {
-	const auto label = container->add(
-		object_ptr<Ui::LabelSimple>(container, st::localStorageLimitLabel),
+	const auto row = container->add(
+		object_ptr<Ui::FixedHeightWidget>(
+			container,
+			st::localStorageLimitLabel.font->height),
 		st::localStorageLimitLabelMargin);
+	const auto title = Ui::CreateChild<Ui::LabelSimple>(
+		row,
+		st::localStorageLimitLabel,
+		name);
+	const auto label = Ui::CreateChild<Ui::LabelSimple>(
+		row,
+		st::localStorageLimitValue);
+	rpl::combine(
+		row->widthValue(),
+		label->widthValue()
+	) | rpl::on_next([=](int width, int) {
+		title->moveToLeft(0, 0, width);
+		label->moveToRight(0, 0, width);
+	}, row->lifetime());
 	callback(label, currentValue);
 	const auto slider = container->add(
 		object_ptr<Ui::MediaSlider>(container, st::localStorageLimitSlider),
@@ -2181,27 +2035,24 @@ void LocalStorage::updateTotalLimit() {
 void LocalStorage::updateTotalLabel() {
 	Expects(_totalLabel != nullptr);
 
-	const auto text = SizeLimitText(_totalSizeLimit);
-	_totalLabel->setText(
-		tr::lng_local_storage_size_limit(tr::now, lt_size, text));
+	_totalLabel->setText(SizeLimitText(_totalSizeLimit));
 }
 
 void LocalStorage::updateMediaLabel() {
 	Expects(_mediaLabel != nullptr);
 
-	const auto text = SizeLimitText(_mediaSizeLimit);
-	_mediaLabel->setText(
-		tr::lng_local_storage_media_limit(tr::now, lt_size, text));
+	_mediaLabel->setText(SizeLimitText(_mediaSizeLimit));
 }
 
 void LocalStorage::setupLimits(not_null<Ui::VerticalLayout*> container) {
 	Ui::AddSubsectionTitle(
 		container,
-		tr::lng_local_storage_max_size_title());
+		tr::lng_local_storage_manage_title());
 
 	_totalSlider = createLimitsSlider(
 		container,
 		kTotalSizeLimitsCount,
+		tr::lng_local_storage_size_limit_title(tr::now),
 		TotalSizeLimit,
 		_totalSizeLimit,
 		[=](not_null<Ui::LabelSimple*> label, int64 limit) {
@@ -2215,6 +2066,7 @@ void LocalStorage::setupLimits(not_null<Ui::VerticalLayout*> container) {
 	_mediaSlider = createLimitsSlider(
 		container,
 		kMediaSizeLimitsCount,
+		tr::lng_local_storage_media_limit_title(tr::now),
 		MediaSizeLimit,
 		_mediaSizeLimit,
 		[=](not_null<Ui::LabelSimple*> label, int64 limit) {
@@ -2228,13 +2080,12 @@ void LocalStorage::setupLimits(not_null<Ui::VerticalLayout*> container) {
 	createLimitsSlider(
 		container,
 		kTimeLimitsCount,
+		tr::lng_local_storage_time_limit_title(tr::now),
 		TimeLimit,
 		LimitToValue(_timeLimit),
 		[=](not_null<Ui::LabelSimple*> label, size_type limit) {
 			_timeLimit = ValueToLimit(limit);
-			const auto text = TimeLimitText(_timeLimit);
-			label->setText(
-				tr::lng_local_storage_time_limit(tr::now, lt_limit, text));
+			label->setText(TimeLimitText(_timeLimit));
 			applyLimits();
 		});
 }

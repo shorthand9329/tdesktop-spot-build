@@ -179,7 +179,9 @@ MTPMessage PrepareLogMessage(const MTPMessage &message, TimeId newDate) {
 			data.vfwd_from() ? *data.vfwd_from() : MTPMessageFwdHeader(),
 			MTP_long(data.vvia_bot_id().value_or_empty()),
 			MTP_long(data.vvia_business_bot_id().value_or_empty()),
-			data.vguestchat_via_from() ? *data.vguestchat_via_from() : MTPPeer(),
+			(data.vguestchat_via_from()
+				? *data.vguestchat_via_from()
+				: MTPPeer()),
 			reply.value_or(MTPMessageReplyHeader()),
 			MTP_int(newDate),
 			data.vmessage(),
@@ -205,7 +207,7 @@ MTPMessage PrepareLogMessage(const MTPMessage &message, TimeId newDate) {
 			MTPSuggestedPost(),
 			MTPint(), // schedule_repeat_period
 			MTPstring(), // summary_from_language
-			MTPRichMessage());
+			data.vrich_message() ? *data.vrich_message() : MTPRichMessage());
 	});
 }
 
@@ -224,12 +226,17 @@ uint64 MediaId(const MTPMessage &message) {
 	if (!MediaCanHaveCaption(message)) {
 		return 0;
 	}
-	const auto &media = message.c_message().vmedia();
-	return media
-		? v::match(
-			Data::GetFileReferences(*media).data.begin()->first,
-			[](const auto &d) { return d.id; })
-		: 0;
+	const auto media = message.c_message().vmedia();
+	if (!media) {
+		return 0;
+	}
+	const auto references = Data::GetFileReferences(*media);
+	if (references.data.empty()) {
+		return 0;
+	}
+	return v::match(
+		references.data.begin()->first,
+		[](const auto &data) { return data.id; });
 }
 
 TextWithEntities ExtractEditedText(
@@ -297,6 +304,10 @@ TextWithEntities GenerateAdminChangeText(
 		{ Flag::ManageCall, tr::lng_admin_log_admin_manage_calls },
 		{ Flag::ManageDirect, tr::lng_admin_log_admin_manage_direct },
 		{ Flag::ManageRanks, tr::lng_admin_log_admin_manage_ranks },
+		{
+			Flag::ManageWelcomeMessages,
+			tr::lng_admin_log_admin_manage_welcome_messages,
+		},
 		{ Flag::AddAdmins, tr::lng_admin_log_admin_add_admins },
 		{ Flag::Anonymous, tr::lng_admin_log_admin_remain_anonymous },
 	};
@@ -778,8 +789,18 @@ OwnedItem::OwnedItem(OwnedItem &&other)
 }
 
 OwnedItem &OwnedItem::operator=(OwnedItem &&other) {
-	_data = base::take(other._data);
-	_view = base::take(other._view);
+	if (this != &other) {
+		// destroy() is synchronous and fires itemRemoved, so both members
+		// must already hold the incoming values when it runs. Assigning
+		// _view also destroys the outgoing view, which ~Element requires
+		// to happen before the item it points to is destroyed.
+		const auto old = base::take(_data);
+		_data = base::take(other._data);
+		_view = base::take(other._view);
+		if (old) {
+			old->destroy();
+		}
+	}
 	return *this;
 }
 

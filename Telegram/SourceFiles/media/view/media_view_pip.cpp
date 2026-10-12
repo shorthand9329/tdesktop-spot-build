@@ -352,6 +352,7 @@ void PipPanel::init() {
 	widget()->setWindowFlags(Qt::Tool
 		| Qt::WindowStaysOnTopHint
 		| Qt::FramelessWindowHint
+		| Qt::NoDropShadowWindowHint
 		| Qt::WindowDoesNotAcceptFocus);
 	widget()->setAttribute(Qt::WA_ShowWithoutActivating);
 	widget()->setAttribute(Qt::WA_MacAlwaysShowToolWindow);
@@ -1413,7 +1414,7 @@ QImage Pip::currentVideoFrameImage() const {
 Ui::GL::ChosenRenderer Pip::chooseRenderer(
 		Ui::GL::Capabilities capabilities) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
-	if (Ui::GL::WidgetsRhiEnabled()) {
+	if (Ui::GL::WidgetsRhiSupported()) {
 		LOG(("Renderer: [QRhi] (PipPanel)"));
 		_opengl = true;
 		return {
