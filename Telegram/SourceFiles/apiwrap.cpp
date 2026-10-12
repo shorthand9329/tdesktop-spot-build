@@ -4514,6 +4514,12 @@ void ApiWrap::sendRichMessage(
 		SendAction action) {
 	Expects(page != nullptr);
 
+	// WHY: a rich message carries its content outside the encrypted text field.
+	Q_UNUSED(richMessage);
+	Q_UNUSED(action);
+	return;
+	#if 0
+
 	const auto history = action.history;
 	const auto peer = history->peer;
 	const auto ephemeral = !action.options.scheduled
@@ -4567,6 +4573,7 @@ void ApiWrap::sendRichMessage(
 		(action.options.scheduled
 			? Data::HistoryUpdate::Flag::ScheduledSent
 			: Data::HistoryUpdate::Flag::MessageSent));
+	#endif
 }
 
 void ApiWrap::sendRichMessage(

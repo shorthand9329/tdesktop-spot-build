@@ -385,6 +385,12 @@ void SetupRichArticleBody(
 		translated->hide(anim::type::instant);
 		error->hide(anim::type::instant);
 		setCopyText({});
+		// WHY: the server-side call would send the message text in the clear.
+		Q_UNUSED(peer);
+		Q_UNUSED(id);
+		showResult(nullptr);
+		return;
+		#if 0
 		using Flag = MTPmessages_TranslateRichMessage::Flag;
 		state->requestId = state->api.request(
 			MTPmessages_TranslateRichMessage(
@@ -404,6 +410,7 @@ void SetupRichArticleBody(
 			state->requestId = 0;
 			showResult(nullptr);
 		}).send();
+		#endif
 	};
 	std::move(to) | rpl::on_next(send, box->lifetime());
 

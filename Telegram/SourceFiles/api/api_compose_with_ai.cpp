@@ -28,7 +28,7 @@ base::options::option<QString> OptionAiApplyToneSlug({
 		" apply hotkey. Empty means no tone is bound.",
 });
 
-[[nodiscard]] MTPTextWithEntities Serialize(
+[[maybe_unused]] [[nodiscard]] MTPTextWithEntities Serialize(
 		not_null<Main::Session*> session,
 		const TextWithEntities &text) {
 	return MTP_textWithEntities(
@@ -77,28 +77,11 @@ mtpRequestId ComposeWithAi::request(
 		flags |= Flag::f_emojify;
 	}
 	const auto session = _session;
-	return _api.request(MTPmessages_ComposeMessageWithAI(
-		MTP_flags(flags),
-		Serialize(session, request.text),
-		request.translateToLang.isEmpty()
-			? MTPstring()
-			: MTP_string(request.translateToLang),
-		SerializeTone(request.tone)
-	)).done([=, done = std::move(done)](
-			const MTPmessages_ComposedMessageWithAI &result) mutable {
-		const auto &data = result.data();
-		auto parsed = Result{
-			.resultText = ParseTextWithEntities(session, data.vresult_text()),
-		};
-		if (const auto diff = data.vdiff_text()) {
-			parsed.diffText = ParseDiff(session, *diff);
-		}
-		done(std::move(parsed));
-	}).fail([=, fail = std::move(fail)](const MTP::Error &error) mutable {
-		if (fail) {
-			fail(error);
-		}
-	}).send();
+	Q_UNUSED(session);
+	// WHY: the server-side AI call would send the message text in the clear.
+	Q_UNUSED(done);
+	Q_UNUSED(fail);
+	return 0;
 }
 
 void ComposeWithAi::cancel(mtpRequestId requestId) {

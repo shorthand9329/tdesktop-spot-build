@@ -610,6 +610,13 @@ void CreateAiBox(not_null<Ui::GenericBox*> box, CreateAiBoxArgs &&args) {
 		state->loading = true;
 		state->enterLoading();
 
+		// WHY: the server-side AI call would send the content in the clear.
+		Q_UNUSED(prompt);
+		state->loading = false;
+		state->phase = State::Phase::Initial;
+		state->rebuildButtons();
+		return;
+		#if 0
 		using Flag = MTPmessages_composeRichMessageWithAI::Flag;
 		auto flags = MTPmessages_composeRichMessageWithAI::Flags(0)
 			| Flag::f_tone;
@@ -650,6 +657,7 @@ void CreateAiBox(not_null<Ui::GenericBox*> box, CreateAiBoxArgs &&args) {
 			}
 			box->showToast(error.type());
 		}).handleFloodErrors().send();
+		#endif
 	};
 
 	state->rebuildButtons();

@@ -387,10 +387,16 @@ void TranslateTracker::requestSomeRich(LanguageId to, PeerId peerId) {
 	_requestInProcess = true;
 	const auto requestToken = ++_requestToken;
 	const auto finish = [=] {
+	Q_UNUSED(requestToken);
 		_requestInProcess = false;
 		_requested.clear();
 		requestSome();
 	};
+	// WHY: the server-side call would send the message text in the clear.
+	Q_UNUSED(mtpIds);
+	finish();
+	return;
+#if 0
 	using Flag = MTPmessages_TranslateRichMessage::Flag;
 	_api.request(MTPmessages_TranslateRichMessage(
 		MTP_flags(Flag::f_peer | Flag::f_id),
@@ -423,6 +429,7 @@ void TranslateTracker::requestSomeRich(LanguageId to, PeerId peerId) {
 		}
 		finish();
 	}).send();
+#endif
 }
 
 void TranslateTracker::applyLimit() {

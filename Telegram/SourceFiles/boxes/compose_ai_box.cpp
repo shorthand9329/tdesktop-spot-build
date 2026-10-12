@@ -1887,6 +1887,13 @@ void ComposeAiContent::requestRich(Api::ComposeWithAi::Request &&request) {
 		showError({});
 		return;
 	}
+	// WHY: the server-side AI call would send the content in the clear.
+	Q_UNUSED(serialized);
+	Q_UNUSED(request);
+	Q_UNUSED(source);
+	showError({});
+	return;
+	#if 0
 	using Flag = MTPmessages_composeRichMessageWithAI::Flag;
 	auto flags = MTPmessages_composeRichMessageWithAI::Flags(0)
 		| Flag::f_text;
@@ -1945,6 +1952,7 @@ void ComposeAiContent::requestRich(Api::ComposeWithAi::Request &&request) {
 		}
 		weak->showError(error.type());
 	}).handleFloodErrors().send();
+	#endif
 }
 
 void ComposeAiContent::setAuthorId(UserId authorId) {
