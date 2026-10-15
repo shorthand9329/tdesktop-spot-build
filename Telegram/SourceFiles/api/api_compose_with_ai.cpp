@@ -28,7 +28,7 @@ base::options::option<QString> OptionAiApplyToneSlug({
 		" apply hotkey. Empty means no tone is bound.",
 });
 
-[[nodiscard]] MTPTextWithEntities Serialize(
+[[maybe_unused]] [[nodiscard]] MTPTextWithEntities Serialize(
 		not_null<Main::Session*> session,
 		const TextWithEntities &text) {
 	return MTP_textWithEntities(
@@ -41,6 +41,21 @@ base::options::option<QString> OptionAiApplyToneSlug({
 ComposeWithAi::ComposeWithAi(not_null<ApiWrap*> api)
 : _session(&api->session())
 , _api(&api->instance()) {
+}
+
+MTPInputAiComposeTone ComposeWithAi::SerializeTone(
+		const std::optional<ToneRef> &tone) {
+	if (!tone) {
+		return MTPInputAiComposeTone();
+	} else if (tone->id) {
+		return MTP_inputAiComposeToneID(
+			MTP_long(tone->id),
+			MTP_long(tone->accessHash));
+	} else if (!tone->customPrompt.isEmpty()) {
+		return MTP_inputAiComposeToneSingleUse(
+			MTP_string(tone->customPrompt));
+	}
+	return MTP_inputAiComposeToneDefault(MTP_string(tone->defaultTone));
 }
 
 mtpRequestId ComposeWithAi::request(
@@ -62,35 +77,11 @@ mtpRequestId ComposeWithAi::request(
 		flags |= Flag::f_emojify;
 	}
 	const auto session = _session;
-	return _api.request(MTPmessages_ComposeMessageWithAI(
-		MTP_flags(flags),
-		Serialize(session, request.text),
-		request.translateToLang.isEmpty()
-			? MTPstring()
-			: MTP_string(request.translateToLang),
-		request.tone
-			? (request.tone->id
-				? MTP_inputAiComposeToneID(
-					MTP_long(request.tone->id),
-					MTP_long(request.tone->accessHash))
-				: MTP_inputAiComposeToneDefault(
-					MTP_string(request.tone->defaultTone)))
-			: MTPInputAiComposeTone()
-	)).done([=, done = std::move(done)](
-			const MTPmessages_ComposedMessageWithAI &result) mutable {
-		const auto &data = result.data();
-		auto parsed = Result{
-			.resultText = ParseTextWithEntities(session, data.vresult_text()),
-		};
-		if (const auto diff = data.vdiff_text()) {
-			parsed.diffText = ParseDiff(session, *diff);
-		}
-		done(std::move(parsed));
-	}).fail([=, fail = std::move(fail)](const MTP::Error &error) mutable {
-		if (fail) {
-			fail(error);
-		}
-	}).send();
+	Q_UNUSED(session);
+	// WHY: the server-side AI call would send the message text in the clear.
+	Q_UNUSED(done);
+	Q_UNUSED(fail);
+	return 0;
 }
 
 void ComposeWithAi::cancel(mtpRequestId requestId) {
@@ -142,7 +133,7 @@ void ApplyAiInPlaceBySlug(
 		Fn<void(const MTP::Error &)> fail) {
 	auto apply = [=, text = std::move(text), done = std::move(done)](
 			ComposeWithAi::ToneRef tone) mutable {
-		(void)session->api().composeWithAi().request({
+		session->api().composeWithAi().request({
 			.text = std::move(text),
 			.tone = std::move(tone),
 		}, [done = std::move(done)](ComposeWithAi::Result &&result) {

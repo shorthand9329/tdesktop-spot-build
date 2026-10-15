@@ -14,8 +14,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/integration.h"
 #include "ui/style/style_core_scale.h"
 #include "ui/widgets/checkbox.h"
+#include "ui/round_rect.h"
 
 #include "styles/palette.h"
+#include "styles/style_chat.h"
 #include "styles/style_iv.h"
 #include "styles/style_window.h"
 #include "styles/style_widgets.h"
@@ -64,23 +66,43 @@ void PaintImageCenterCrop(Painter &p, QRect rect, const QImage &image) {
 		CenterCropSourceRect(image.size(), rect.size()));
 }
 
-[[nodiscard]] bool ImageCoversRect(const QImage &image, QRect rect) {
+[[nodiscard]] bool ImageCoversRect(
+		const QImage &image,
+		QRect rect,
+		double pixelScale) {
 	const auto ratio = std::max(image.devicePixelRatio(), 1.);
-	return (image.width() / ratio >= rect.width())
-		&& (image.height() / ratio >= rect.height());
+	return (image.width() / ratio >= rect.width() * pixelScale)
+		&& (image.height() / ratio >= rect.height() * pixelScale);
+}
+
+[[nodiscard]] QSize ScaledImageRequestSize(QSize size, double scale) {
+	return (scale == 1.)
+		? size
+		: QSize(
+			std::max(int(std::ceil(size.width() * scale)), 1),
+			std::max(int(std::ceil(size.height() * scale)), 1));
+}
+
+[[nodiscard]] int PullquoteIconReserveWidth(
+		const style::QuoteStyle &style) {
+	return style.icon.empty()
+		? 0
+		: (style.icon.width() + style.iconPosition.x());
 }
 
 [[nodiscard]] bool PaintDynamicImage(
 		Painter &p,
 		const std::shared_ptr<Ui::DynamicImage> &image,
 		QRect rect,
+		double pixelScale,
 		bool requireCovering = false) {
 	if (!image || rect.isEmpty()) {
 		return false;
 	}
-	if (const auto frame = image->image(std::max(rect.width(), rect.height()));
-		!frame.isNull()) {
-		if (requireCovering && !ImageCoversRect(frame, rect)) {
+	const auto requested = int(std::ceil(
+		std::max(rect.width(), rect.height()) * pixelScale));
+	if (const auto frame = image->image(requested); !frame.isNull()) {
+		if (requireCovering && !ImageCoversRect(frame, rect, pixelScale)) {
 			return false;
 		}
 		PaintImageCenterCrop(p, rect, frame);
@@ -89,15 +111,16 @@ void PaintImageCenterCrop(Painter &p, QRect rect, const QImage &image) {
 	return false;
 }
 
-[[nodiscard]] bool PaintThumbnailImage(
+bool PaintThumbnailImage(
 		Painter &p,
 		QRect rect,
 		const std::shared_ptr<Ui::DynamicImage> &thumbnail,
-		const std::shared_ptr<Ui::DynamicImage> &previousThumbnail) {
-	return PaintDynamicImage(p, thumbnail, rect, true)
-		|| PaintDynamicImage(p, previousThumbnail, rect, true)
-		|| PaintDynamicImage(p, previousThumbnail, rect)
-		|| PaintDynamicImage(p, thumbnail, rect);
+		const std::shared_ptr<Ui::DynamicImage> &previousThumbnail,
+		double pixelScale) {
+	return PaintDynamicImage(p, thumbnail, rect, pixelScale, true)
+		|| PaintDynamicImage(p, previousThumbnail, rect, pixelScale, true)
+		|| PaintDynamicImage(p, previousThumbnail, rect, pixelScale)
+		|| PaintDynamicImage(p, thumbnail, rect, pixelScale);
 }
 
 void UpdateResolvedImage(
@@ -153,21 +176,22 @@ void RefreshResolvedBlockImage(
 	});
 }
 
-[[nodiscard]] bool PaintRelatedArticleImage(
+bool PaintRelatedArticleImage(
 		Painter &p,
 		QRect rect,
 		const std::shared_ptr<Ui::DynamicImage> &thumbnail,
 		const std::shared_ptr<Ui::DynamicImage> &full,
 		const std::shared_ptr<Ui::DynamicImage> &previousThumbnail,
-		const std::shared_ptr<Ui::DynamicImage> &previousFull) {
-	return PaintDynamicImage(p, full, rect, true)
-		|| PaintDynamicImage(p, previousFull, rect, true)
-		|| PaintDynamicImage(p, full, rect)
-		|| PaintDynamicImage(p, previousFull, rect)
-		|| PaintDynamicImage(p, thumbnail, rect, true)
-		|| PaintDynamicImage(p, previousThumbnail, rect, true)
-		|| PaintDynamicImage(p, previousThumbnail, rect)
-		|| PaintDynamicImage(p, thumbnail, rect);
+		const std::shared_ptr<Ui::DynamicImage> &previousFull,
+		double pixelScale) {
+	return PaintDynamicImage(p, full, rect, pixelScale, true)
+		|| PaintDynamicImage(p, previousFull, rect, pixelScale, true)
+		|| PaintDynamicImage(p, full, rect, pixelScale)
+		|| PaintDynamicImage(p, previousFull, rect, pixelScale)
+		|| PaintDynamicImage(p, thumbnail, rect, pixelScale, true)
+		|| PaintDynamicImage(p, previousThumbnail, rect, pixelScale, true)
+		|| PaintDynamicImage(p, previousThumbnail, rect, pixelScale)
+		|| PaintDynamicImage(p, thumbnail, rect, pixelScale);
 }
 
 [[nodiscard]] const style::Markdown &PaintStyle(
@@ -210,7 +234,7 @@ void RefreshResolvedBlockImage(
 	if (textRect.isEmpty() || (textWidth <= 0)) {
 		return 0;
 	}
-	return int(leaf.countLinesGeometry(textWidth, true).size());
+	return int(leaf.countLinesGeometry(textWidth).size());
 }
 
 void PaintSelectableTextLeaf(
@@ -286,6 +310,7 @@ void PaintSelectableTextLeaf(
 			block.textRect,
 			block.textWidth);
 	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
 		return CountGenericRevealBand(block.outer);
 	case PreparedBlockKind::List:
 	case PreparedBlockKind::ListItem:
@@ -305,7 +330,7 @@ void PaintSelectableTextLeaf(
 			block.textWidth) + CountRevealLinesForBlocks(block.children, st);
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -329,12 +354,33 @@ void PaintSelectableTextLeaf(
 	return result;
 }
 
+template <typename CountCallback>
+[[nodiscard]] int CachedRevealLineCount(
+		const MarkdownArticlePaintContext &context,
+		const void *key,
+		CountCallback &&count) {
+	const auto cache = context.reveal ? context.reveal->lineCounts : nullptr;
+	if (!cache) {
+		return count();
+	}
+	const auto i = cache->counts.find(key);
+	if (i != end(cache->counts)) {
+		return i->second;
+	}
+	const auto result = count();
+	cache->counts.emplace(key, result);
+	return result;
+}
+
 void AdvanceRevealLinesForBlock(
 		const MarkdownArticlePaintContext &context,
 		const LaidOutBlock &block,
 		const style::Markdown &st) {
 	if (context.reveal) {
-		context.reveal->nextLine += CountRevealLinesForBlock(block, st);
+		context.reveal->nextLine += CachedRevealLineCount(
+			context,
+			&block,
+			[&] { return CountRevealLinesForBlock(block, st); });
 	}
 }
 
@@ -628,7 +674,9 @@ void RefreshBlockThumbnail(
 	if (!block.photoRuntime || block.thumbnailRect.isEmpty()) {
 		return;
 	}
-	const auto size = block.thumbnailRect.size();
+	const auto size = ScaledImageRequestSize(
+		block.thumbnailRect.size(),
+		context.mediaPixelScale);
 	if (size.isEmpty() || block.thumbnailRequestSize == size) {
 		return;
 	}
@@ -660,7 +708,9 @@ void RefreshRelatedArticleImages(
 	if (!block.photoRuntime || block.thumbnailRect.isEmpty()) {
 		return;
 	}
-	const auto size = block.thumbnailRect.size();
+	const auto size = ScaledImageRequestSize(
+		block.thumbnailRect.size(),
+		context.mediaPixelScale);
 	RefreshResolvedBlockImage(
 		block,
 		context,
@@ -693,13 +743,20 @@ void PaintTextLeaf(
 		int width,
 		style::align align = style::al_left,
 		std::optional<TextSelection> selection = std::nullopt,
-		int elisionLines = 0) {
+		int elisionLines = 0,
+		int segmentIndex = -1) {
 	const auto availableWidth = std::max(width, 1);
 	auto linePostprocess = std::optional<Ui::Text::LinePostprocess>();
 	if (context.reveal && !elisionLines) {
-		const auto lines = leaf.countLinesGeometry(availableWidth, true);
+		const auto lineCount = CachedRevealLineCount(
+			context,
+			&leaf,
+			[&] {
+				return int(leaf.countLinesGeometry(
+					availableWidth).size());
+			});
 		const auto baseLine = context.reveal->nextLine;
-		context.reveal->nextLine += int(lines.size());
+		context.reveal->nextLine += lineCount;
 		if (const auto articlePostprocess = context.reveal->postprocess) {
 			const auto activeLine = context.reveal->activeLine;
 			linePostprocess.emplace(Ui::Text::LinePostprocess{
@@ -721,24 +778,83 @@ void PaintTextLeaf(
 	if (!context.clip.isNull()) {
 		p.setClipRect(context.clip, Qt::IntersectClip);
 	}
-	leaf.draw(p, {
-		.position = rect.topLeft(),
-		.availableWidth = availableWidth,
-		.geometry = elisionLines
-			? Ui::Text::SimpleGeometry(availableWidth, elisionLines, 0, true)
-			: TextGeometry(availableWidth),
-		.align = align,
-		.clip = context.clip,
-		.palette = &p.textPalette(),
-		.pre = context.caches.pre,
-		.blockquote = context.caches.blockquote,
-		.colors = context.caches.colors,
-		.spoiler = Ui::Text::DefaultSpoilerCache(),
-		.now = context.now,
-		.selection = selection.value_or(TextSelection()),
-		.elisionLines = elisionLines,
-		.linePostprocess = linePostprocess ? &*linePostprocess : nullptr,
-	});
+	const auto makeContext = [&] {
+		return Ui::Text::PaintContext{
+			.position = rect.topLeft(),
+			.availableWidth = availableWidth,
+			.geometry = (elisionLines
+				? Ui::Text::SimpleGeometry(availableWidth, elisionLines, 0, false)
+				: TextGeometry(availableWidth)),
+			.align = align,
+			.clip = context.clip,
+			.palette = &p.textPalette(),
+			.pre = context.caches.pre,
+			.blockquote = context.caches.blockquote,
+			.colors = context.caches.colors,
+			.spoiler = Ui::Text::DefaultSpoilerCache(),
+			.now = context.now,
+			.elisionLines = elisionLines,
+		};
+	};
+	auto drawContext = makeContext();
+	drawContext.selection = selection.value_or(TextSelection());
+	drawContext.linePostprocess = linePostprocess ? &*linePostprocess : nullptr;
+	leaf.draw(p, drawContext);
+	const auto searchRanges = PaintSearchRangesForSegmentIndex(
+		context.selectionState,
+		context.searchState,
+		segmentIndex);
+	if (!searchRanges.empty()) {
+		const auto makePalette = [&](
+				const style::color &bg,
+				const style::color &fg) {
+			auto result = p.textPalette();
+			result.selectBg = bg;
+			result.selectFg = fg;
+			result.selectLinkFg = fg;
+			result.selectMonoFg = fg;
+			result.selectSpoilerFg = fg;
+			return result;
+		};
+		const auto otherPalette = makePalette(
+			st::searchedTextMatchBg,
+			st::searchedTextMatchFg);
+		const auto currentPalette = makePalette(
+			st::searchedTextCurrentMatchBg,
+			st::searchedTextCurrentMatchFg);
+		const auto paintMatch = [&](
+				TextSelection range,
+				const style::TextPalette &palette) {
+			auto path = QPainterPath();
+			auto request = Ui::Text::HighlightInfoRequest{
+				.range = range,
+				.outPath = &path,
+			};
+			auto composeContext = makeContext();
+			composeContext.highlight = &request;
+			p.save();
+			p.setClipRect(QRect(), Qt::ReplaceClip);
+			leaf.draw(p, composeContext);
+			p.restore();
+			if (path.isEmpty()) {
+				return;
+			}
+			path.setFillRule(Qt::WindingFill);
+			auto matchContext = makeContext();
+			matchContext.palette = &palette;
+			matchContext.selection = range;
+			p.save();
+			p.setClipPath(path, Qt::IntersectClip);
+			leaf.draw(p, matchContext);
+			p.restore();
+		};
+		for (const auto range : searchRanges.other) {
+			paintMatch(range, otherPalette);
+		}
+		if (searchRanges.current) {
+			paintMatch(*searchRanges.current, currentPalette);
+		}
+	}
 	p.restore();
 }
 
@@ -756,7 +872,10 @@ void PaintSelectableTextLeaf(
 		&& ((context.hiddenTextSegmentIndex == segmentIndex)
 			|| (context.hiddenSegmentIndex == segmentIndex))) {
 		if (context.reveal && !elisionLines) {
-			context.reveal->nextLine += CountTextRevealLines(leaf, rect, width);
+			context.reveal->nextLine += CachedRevealLineCount(
+				context,
+				&leaf,
+				[&] { return CountTextRevealLines(leaf, rect, width); });
 		}
 		return;
 	}
@@ -768,7 +887,8 @@ void PaintSelectableTextLeaf(
 		width,
 		align,
 		selection,
-		elisionLines);
+		elisionLines,
+		segmentIndex);
 }
 
 [[nodiscard]] QRect FlowTextViewportRect(const LaidOutBlock &block) {
@@ -804,7 +924,7 @@ void PaintThinkingTextLeafDirect(
 		block.textWidth,
 		block.segmentIndex,
 		style::al_left,
-		TextSelectionForSegmentIndex(
+		PaintTextSelectionForSegmentIndex(
 			context.selectionState,
 			block.segmentIndex));
 }
@@ -1278,7 +1398,7 @@ void PaintTableCaption(
 		const style::Markdown &st,
 		const MarkdownArticlePaintContext &context) {
 	if (!block.textRect.isEmpty()) {
-		const auto selection = TextSelectionForSegmentIndex(
+		const auto selection = PaintTextSelectionForSegmentIndex(
 			context.selectionState,
 			block.secondarySegmentIndex);
 		if (!PaintEditPlaceholderLeaf(
@@ -1336,11 +1456,12 @@ void PaintTableCaption(
 	case PreparedBlockKind::Thinking:
 	case PreparedBlockKind::Heading:
 	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
 	case PreparedBlockKind::List:
 	case PreparedBlockKind::ListItem:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -1354,6 +1475,30 @@ void PaintTableCaption(
 [[nodiscard]] bool HorizontalRightEdgeHidden(const LaidOutBlock &block) {
 	return block.horizontalScrollMax > 0
 		&& (block.horizontalScrollLeft < block.horizontalScrollMax);
+}
+
+[[nodiscard]] QRect HorizontalOverflowContentClip(
+		const LaidOutBlock &block,
+		const style::Markdown &st,
+		QRect viewport) {
+	if (block.horizontalScrollMax <= 0 || viewport.isEmpty()) {
+		return viewport;
+	}
+	const auto indicatorWidth = std::min(
+		std::max(OverflowIndicatorWidth(block, st), 1),
+		viewport.width());
+	const auto left = (block.horizontalScrollLeft > 0)
+		? indicatorWidth
+		: 0;
+	const auto right = HorizontalRightEdgeHidden(block)
+		? indicatorWidth
+		: 0;
+	const auto width = std::max(viewport.width() - left - right, 0);
+	return QRect(
+		viewport.x() + left,
+		viewport.y(),
+		width,
+		viewport.height());
 }
 
 [[nodiscard]] QRect HorizontalScrollLogicalPaintRect(
@@ -1478,7 +1623,9 @@ void PaintWholeTable(
 	if (tableClip.isEmpty()) {
 		return;
 	}
-	const auto tableContext = ClippedContext(context, tableClip);
+	const auto textClip = tableClip.intersected(
+		HorizontalOverflowContentClip(block, st, block.visibleTableRect));
+	const auto tableContext = ClippedContext(context, textClip);
 
 	const auto border = TableBorder(block, st);
 	const auto radius = st.table.radius;
@@ -1523,7 +1670,7 @@ void PaintWholeTable(
 			if (!cell.textRect.intersects(tableClip)) {
 				continue;
 			}
-			const auto selection = TextSelectionForSegmentIndex(
+			const auto selection = PaintTextSelectionForSegmentIndex(
 				context.selectionState,
 				cell.segmentIndex);
 			if (!PaintEditPlaceholderLeaf(
@@ -1599,7 +1746,8 @@ void PaintTableRowBand(
 	const auto cells = TableCellsForRowBand(ownership, rowIndex, rowBand);
 	const auto rowContext = ClippedContext(
 		RevealSuppressedContext(context),
-		rowClip);
+		rowClip.intersected(
+			HorizontalOverflowContentClip(block, st, block.visibleTableRect)));
 
 	p.save();
 	p.setClipRect(rowClip, Qt::IntersectClip);
@@ -1634,7 +1782,7 @@ void PaintTableRowBand(
 		if (!cell || !cell->textRect.intersects(rowClip)) {
 			continue;
 		}
-		const auto selection = TextSelectionForSegmentIndex(
+		const auto selection = PaintTextSelectionForSegmentIndex(
 			context.selectionState,
 			cell->segmentIndex);
 		if (!PaintEditPlaceholderLeaf(
@@ -1817,19 +1965,68 @@ void PaintQuoteBlock(
 	}
 
 	if (context.caches.blockquote) {
+		const auto &quoteStyle = st.body.blockquote;
+		Ui::Text::ValidateQuotePaintCache(
+			*context.caches.blockquote,
+			quoteStyle);
 		if (!block.pullquote) {
-			const auto &quoteStyle = st.body.blockquote;
-			Ui::Text::ValidateQuotePaintCache(
-				*context.caches.blockquote,
-				quoteStyle);
-
+			const auto control = QuoteHasCollapseControl(block);
 			p.save();
 			p.setClipRect(quoteClip);
 			Ui::Text::FillQuotePaint(
 				p,
 				HorizontalScrollLogicalPaintRect(block),
 				*context.caches.blockquote,
-				quoteStyle);
+				quoteStyle,
+				{
+					.expandIcon = control && block.collapsed,
+					.collapseIcon = control && !block.collapsed,
+				});
+			p.restore();
+		} else {
+			p.save();
+			p.setClipRect(quoteClip);
+			p.setPen(Qt::NoPen);
+			p.setBrush(context.caches.blockquote->bg);
+			auto hq = PainterHighQualityEnabler(p);
+			p.drawRoundedRect(block.outer, quoteStyle.radius, quoteStyle.radius);
+			if (!quoteStyle.icon.empty()) {
+				const auto icon = quoteStyle.icon.instance(
+					context.caches.blockquote->icon);
+				if (!icon.isNull()) {
+					const auto reserve = PullquoteIconReserveWidth(quoteStyle);
+					const auto left = block.contentRect.x()
+						- reserve
+						+ quoteStyle.iconPosition.x();
+					const auto top = block.outer.y()
+						+ st.pullquote.padding.top()
+						+ quoteStyle.iconPosition.y();
+					const auto right = block.contentRect.x()
+						+ block.contentRect.width()
+						+ reserve
+						- quoteStyle.iconPosition.x()
+						- quoteStyle.icon.width();
+					const auto bottom = block.outer.y()
+						+ block.outer.height()
+						- st.pullquote.padding.bottom()
+						- quoteStyle.iconPosition.y()
+						- quoteStyle.icon.height();
+					p.drawImage(
+						QRect(
+							left,
+							top,
+							quoteStyle.icon.width(),
+							quoteStyle.icon.height()),
+						icon);
+					p.drawImage(
+						QRect(
+							right,
+							bottom,
+							quoteStyle.icon.width(),
+							quoteStyle.icon.height()),
+						icon.mirrored(true, false));
+				}
+			}
 			p.restore();
 		}
 	}
@@ -1837,10 +2034,8 @@ void PaintQuoteBlock(
 	auto local = ClippedContext(
 		context,
 		context.clip.intersected(block.contentRect));
-	if (!block.pullquote) {
-		local.caches.supplementaryColorOverride
-			= NonPullquoteQuoteCaptionColor(context, st);
-	}
+	local.caches.supplementaryColorOverride
+		= NonPullquoteQuoteCaptionColor(context, st);
 	PaintBlocks(
 		p,
 		block.children,
@@ -1910,7 +2105,7 @@ void PaintCodeBlock(
 	const auto textClip = context.clip.intersected(block.contentRect);
 	const auto textContext = ClippedContext(context, textClip);
 	p.save();
-	const auto selection = TextSelectionForSegmentIndex(
+	const auto selection = PaintTextSelectionForSegmentIndex(
 		textContext.selectionState,
 		block.segmentIndex);
 	if (!PaintEditPlaceholderLeaf(
@@ -1947,12 +2142,35 @@ void PaintCodeBlock(
 	PaintHorizontalScrollbar(p, block, st, context);
 }
 
+bool PaintUnsupportedNoticeBlock(
+		Painter &p,
+		const LaidOutBlock &block,
+		const MarkdownArticlePaintContext &context) {
+	if (block.activation.kind != MediaActivationKind::UnsupportedBlock) {
+		return false;
+	}
+	const auto &runtime = block.placeholderRuntime;
+	Assert(runtime != nullptr);
+	Assert(runtime->unsupportedCard != nullptr);
+
+	const auto card = runtime->unsupportedCard.get();
+	const auto cardRect = QRect(
+		block.mediaRect.topLeft() - card->buttonRect().topLeft(),
+		QSize(card->width(), card->height()));
+	card->paint(p, context, cardRect, runtime->ripple.get());
+	return true;
+}
+
 void PaintPlaceholderBlock(
 		Painter &p,
 		const LaidOutBlock &block,
 		int outerWidth,
 		const style::Markdown &st,
 		const MarkdownArticlePaintContext &context) {
+	if (PaintUnsupportedNoticeBlock(p, block, context)) {
+		return;
+	}
+	const auto &paintSt = PaintStyle(context, st);
 	PaintRevealBand(
 		p,
 		context,
@@ -1974,10 +2192,10 @@ void PaintPlaceholderBlock(
 				const auto pressed = ClickHandler::showAsPressed(
 					block.placeholderRuntime->clickHandler);
 				p.setPen(Qt::NoPen);
-				p.setBrush(st.placeholder.bg);
+				p.setBrush(paintSt.placeholder.bg);
 				p.drawRoundedRect(block.mediaRect, radius, radius);
 				if (active || pressed) {
-					p.setBrush(st.placeholder.bgActive);
+					p.setBrush(paintSt.placeholder.bgActive);
 					p.drawRoundedRect(block.mediaRect, radius, radius);
 				}
 				if (const auto &ripple = block.placeholderRuntime->ripple) {
@@ -1986,9 +2204,9 @@ void PaintPlaceholderBlock(
 						block.mediaRect.x(),
 						block.mediaRect.y(),
 						outerWidth,
-						&st.placeholder.rippleBg->c);
+						&paintSt.placeholder.rippleBg->c);
 				}
-				auto pen = QPen(st.placeholder.borderFg->c);
+				auto pen = QPen(paintSt.placeholder.borderFg->c);
 				pen.setWidth(border);
 				p.setPen(pen);
 				p.setBrush(Qt::NoBrush);
@@ -2006,10 +2224,10 @@ void PaintPlaceholderBlock(
 						spinner.topLeft(),
 						spinner.size(),
 						outerWidth,
-						QPen(st.placeholder.spinnerFg->c),
+						QPen(paintSt.placeholder.spinnerFg->c),
 						st.placeholder.spinnerWidth);
 				} else {
-					p.setPen(st.placeholder.labelFgActive->c);
+					p.setPen(paintSt.placeholder.labelFgActive->c);
 					PaintTextLeaf(
 						p,
 						block.labelLeaf,
@@ -2021,7 +2239,7 @@ void PaintPlaceholderBlock(
 			} else {
 				const auto max = block.labelLeaf.maxWidth();
 				const auto radius = st.placeholder.radius;
-				p.setBrush(st.placeholder.bg);
+				p.setBrush(paintSt.placeholder.bg);
 				p.setPen(Qt::NoPen);
 				const auto skip = (max < block.labelRect.width())
 					? ((block.labelRect.width() - max) / 2)
@@ -2032,7 +2250,7 @@ void PaintPlaceholderBlock(
 					).marginsAdded(st.placeholder.padding),
 					radius,
 					radius);
-				p.setPen(st.placeholder.labelFg->c);
+				p.setPen(paintSt.placeholder.labelFg->c);
 				PaintTextLeaf(
 					p,
 					block.labelLeaf,
@@ -2049,7 +2267,7 @@ void PaintPlaceholderBlock(
 			}
 		});
 	if (!block.textRect.isEmpty()) {
-		const auto selection = TextSelectionForSegmentIndex(
+		const auto selection = PaintTextSelectionForSegmentIndex(
 			context.selectionState,
 			block.secondarySegmentIndex);
 		if (!PaintEditPlaceholderLeaf(
@@ -2083,6 +2301,22 @@ void PaintPlaceholderBlock(
 	return path;
 }
 
+[[nodiscard]] QPainterPath MediaRoundedRectPath(
+		QRect rect,
+		Ui::BubbleRounding rounding,
+		int radius) {
+	const auto corner = [&](Ui::BubbleCornerRounding value) {
+		const auto bubble = Ui::BubbleCornerRadius(value);
+		return bubble ? bubble : radius;
+	};
+	return Ui::ComplexRoundedRectPath(
+		rect,
+		corner(rounding.topLeft),
+		corner(rounding.topRight),
+		corner(rounding.bottomLeft),
+		corner(rounding.bottomRight));
+}
+
 void PaintEmbedPostBlock(
 		Painter &p,
 		const LaidOutBlock &block,
@@ -2094,6 +2328,7 @@ void PaintEmbedPostBlock(
 		const style::Markdown &st,
 		const MarkdownArticlePaintContext &context) {
 	const auto &style = st.embedPost;
+	const auto &paintSt = PaintStyle(context, st);
 	const auto paintHeader = [&](
 			Painter &p,
 			const MarkdownArticlePaintContext &headerContext) {
@@ -2105,7 +2340,7 @@ void PaintEmbedPostBlock(
 					block.mediaRect.y(),
 					style.accentWidth,
 					block.mediaRect.height()),
-				style.accentFg->c);
+				paintSt.embedPost.accentFg->c);
 		}
 		if (block.photoRuntime && !block.thumbnailRect.isEmpty()) {
 			auto hq = PainterHighQualityEnabler(p);
@@ -2116,15 +2351,16 @@ void PaintEmbedPostBlock(
 			p.setClipPath(
 				avatarPath,
 				Qt::IntersectClip);
-			(void)PaintThumbnailImage(
+			PaintThumbnailImage(
 				p,
 				block.thumbnailRect,
 				block.thumbnailImage,
-				block.previousThumbnailImage);
+				block.previousThumbnailImage,
+				headerContext.mediaPixelScale);
 			p.restore();
 		}
 		if (!block.labelRect.isEmpty()) {
-			p.setPen(style.authorFg->c);
+			p.setPen(paintSt.embedPost.authorFg->c);
 			PaintSelectableTextLeaf(
 				p,
 				block.labelLeaf,
@@ -2133,12 +2369,12 @@ void PaintEmbedPostBlock(
 				block.labelWidth,
 				block.segmentIndex,
 				style::al_left,
-				TextSelectionForSegmentIndex(
+				PaintTextSelectionForSegmentIndex(
 					headerContext.selectionState,
 					block.segmentIndex));
 		}
 		if (!block.subtitleRect.isEmpty()) {
-			p.setPen(style.dateFg->c);
+			p.setPen(paintSt.embedPost.dateFg->c);
 			PaintSelectableTextLeaf(
 				p,
 				block.subtitleLeaf,
@@ -2147,7 +2383,7 @@ void PaintEmbedPostBlock(
 				block.subtitleWidth,
 				block.secondarySegmentIndex,
 				style::al_left,
-				TextSelectionForSegmentIndex(
+				PaintTextSelectionForSegmentIndex(
 					headerContext.selectionState,
 					block.secondarySegmentIndex));
 		}
@@ -2194,7 +2430,7 @@ void PaintEmbedPostBlock(
 		if (!accentClip.isEmpty()) {
 			p.save();
 			p.setClipRect(accentClip);
-			p.fillRect(accentRect, style.accentFg->c);
+			p.fillRect(accentRect, paintSt.embedPost.accentFg->c);
 			p.restore();
 		}
 	}
@@ -2233,7 +2469,7 @@ void PaintEmbedPostBlock(
 			block.textWidth,
 			block.tertiarySegmentIndex,
 			style::al_left,
-			TextSelectionForSegmentIndex(
+			PaintTextSelectionForSegmentIndex(
 				context.selectionState,
 				block.tertiarySegmentIndex));
 	}
@@ -2247,7 +2483,7 @@ void PaintMediaCaption(
 	if (block.textRect.isEmpty()) {
 		return;
 	}
-	const auto selection = TextSelectionForSegmentIndex(
+	const auto selection = PaintTextSelectionForSegmentIndex(
 		context.selectionState,
 		block.secondarySegmentIndex);
 	if (!PaintEditPlaceholderLeaf(
@@ -2290,7 +2526,19 @@ void PaintPersistentMediaBlock(
 				&& WholeSegmentSelected(
 					mediaContext.selectionState,
 					block.segmentIndex)) {
-				p.fillRect(block.mediaRect, p.textPalette().selectOverlay);
+				const auto rounding = block.mediaBlock
+					? block.mediaBlock->bubbleRounding()
+					: Ui::BubbleRounding();
+				if (rounding == Ui::BubbleRounding()) {
+					p.fillRect(
+						block.mediaRect,
+						p.textPalette().selectOverlay);
+				} else {
+					auto hq = PainterHighQualityEnabler(p);
+					p.fillPath(
+						MediaRoundedRectPath(block.mediaRect, rounding, 0),
+						p.textPalette().selectOverlay);
+				}
 			}
 		});
 }
@@ -2336,7 +2584,7 @@ void PaintCardSurface(
 	}
 }
 
-void PaintAudioBlock(
+void PaintDocumentBlock(
 		Painter &p,
 		const LaidOutBlock &block,
 		const style::Markdown &st,
@@ -2359,6 +2607,7 @@ void PaintRelatedArticleBlock(
 		const LaidOutBlock &block,
 		const style::Markdown &st,
 		const MarkdownArticlePaintContext &context) {
+	const auto &paintSt = PaintStyle(context, st);
 	PaintRevealBand(
 		p,
 		context,
@@ -2370,11 +2619,11 @@ void PaintRelatedArticleBlock(
 				p,
 				block.mediaRect,
 				style.border,
-				style.borderFg,
-				style.bg,
+				paintSt.relatedArticle.borderFg,
+				paintSt.relatedArticle.bg,
 				style.radius);
 			if (!block.thumbnailRect.isEmpty()) {
-				p.fillRect(block.thumbnailRect, style.bg->c);
+				p.fillRect(block.thumbnailRect, paintSt.relatedArticle.bg->c);
 				if (style.thumbnailRadius > 0) {
 					auto hq = PainterHighQualityEnabler(p);
 					auto path = RoundedRectPath(
@@ -2382,26 +2631,28 @@ void PaintRelatedArticleBlock(
 						style.thumbnailRadius);
 					p.save();
 					p.setClipPath(path, Qt::IntersectClip);
-					(void)PaintRelatedArticleImage(
+					PaintRelatedArticleImage(
 						p,
 						block.thumbnailRect,
 						block.thumbnailImage,
 						block.fullImage,
 						block.previousThumbnailImage,
-						block.previousFullImage);
+						block.previousFullImage,
+						visibleContext.mediaPixelScale);
 					p.restore();
 				} else {
-					(void)PaintRelatedArticleImage(
+					PaintRelatedArticleImage(
 						p,
 						block.thumbnailRect,
 						block.thumbnailImage,
 						block.fullImage,
 						block.previousThumbnailImage,
-						block.previousFullImage);
+						block.previousFullImage,
+						visibleContext.mediaPixelScale);
 				}
 			}
 			if (!block.labelRect.isEmpty()) {
-				p.setPen(st.textColor->c);
+				p.setPen(paintSt.textColor->c);
 				PaintRelatedArticleTextLeaf(
 					p,
 					block.labelLeaf,
@@ -2411,7 +2662,7 @@ void PaintRelatedArticleBlock(
 					style.titleLines);
 			}
 			if (!block.subtitleRect.isEmpty()) {
-				p.setPen(st.textColor->c);
+				p.setPen(paintSt.textColor->c);
 				PaintRelatedArticleTextLeaf(
 					p,
 					block.subtitleLeaf,
@@ -2421,7 +2672,7 @@ void PaintRelatedArticleBlock(
 					style.subtitleLines);
 			}
 			if (!block.actionRect.isEmpty()) {
-				p.setPen(st.supplementaryTextColor->c);
+				p.setPen(paintSt.supplementaryTextColor->c);
 				PaintRelatedArticleTextLeaf(
 					p,
 					block.actionLeaf,
@@ -2447,7 +2698,7 @@ void PaintRelatedArticleBlock(
 							- style.separator,
 						block.mediaRect.width(),
 						style.separator),
-					style.separatorFg->c);
+					paintSt.relatedArticle.separatorFg->c);
 			}
 		});
 }
@@ -2503,9 +2754,20 @@ void PaintGroupedMediaBlock(
 						style.overlayOpacity,
 						0.,
 						1.));
-					p.fillPath(
-						RoundedRectPath(block.mediaRect, style.radius),
-						overlay);
+					const auto rounding = block.mediaBlock->bubbleRounding();
+					if (rounding == Ui::BubbleRounding()) {
+						p.fillPath(
+							RoundedRectPath(block.mediaRect, style.radius),
+							overlay);
+					} else {
+						auto hq = PainterHighQualityEnabler(p);
+						p.fillPath(
+							MediaRoundedRectPath(
+								block.mediaRect,
+								rounding,
+								style.radius),
+							overlay);
+					}
 				}
 			}
 		});
@@ -2552,7 +2814,7 @@ void PaintDetailsBlock(
 			paintSt.supplementaryTextColor->c,
 			collapsed);
 	}
-	const auto selection = TextSelectionForSegmentIndex(
+	const auto selection = PaintTextSelectionForSegmentIndex(
 		context.selectionState,
 		block.segmentIndex);
 	if (!PaintEditPlaceholderLeaf(
@@ -2585,7 +2847,7 @@ void PaintDetailsBlock(
 			context,
 			block.actionRect,
 			block.actionRect.width(),
-			style::al_right);
+			block.rtl ? style::al_left : style::al_right);
 	}
 	p.restore();
 
@@ -2623,7 +2885,7 @@ void PaintThinkingBlock(
 	const auto contentClip = context.clip.intersected(viewport);
 	const auto &paintSt = PaintStyle(context, st);
 	const auto baseColor = paintSt.supplementaryTextColor;
-	const auto selection = TextSelectionForSegmentIndex(
+	const auto selection = PaintTextSelectionForSegmentIndex(
 		context.selectionState,
 		block.segmentIndex);
 	const auto logicalRect = viewport;
@@ -2826,7 +3088,7 @@ void PaintBlock(
 			const auto flowContext = ClippedContext(
 				context,
 				context.clip.intersected(FlowTextViewportRect(block)));
-			const auto selection = TextSelectionForSegmentIndex(
+			const auto selection = PaintTextSelectionForSegmentIndex(
 				flowContext.selectionState,
 				block.segmentIndex);
 			if (!PaintEditPlaceholderLeaf(
@@ -2870,6 +3132,15 @@ void PaintBlock(
 			block.outer,
 			[&](Painter &p, const MarkdownArticlePaintContext &context) {
 				p.fillRect(block.outer, EffectiveDividerFg(paintSt, context));
+			});
+		break;
+	case PreparedBlockKind::ButtonRow:
+		PaintRevealBand(
+			p,
+			context,
+			block.outer,
+			[&](Painter &p, const MarkdownArticlePaintContext &context) {
+				PaintButtonRow(p, block, st, context, outerWidth);
 			});
 		break;
 	case PreparedBlockKind::List:
@@ -2974,8 +3245,8 @@ void PaintBlock(
 	case PreparedBlockKind::Video:
 		PaintVideoBlock(p, block, st, context);
 		break;
-	case PreparedBlockKind::Audio:
-		PaintAudioBlock(p, block, st, context);
+	case PreparedBlockKind::Document:
+		PaintDocumentBlock(p, block, st, context);
 		break;
 	case PreparedBlockKind::Map:
 		PaintMapBlock(p, block, st, context);
@@ -3028,10 +3299,7 @@ QColor NonPullquoteQuoteCaptionColor(
 	if (!context.caches.blockquote) {
 		return PaintStyle(context, st).supplementaryTextColor->c;
 	}
-	return anim::color(
-		context.caches.blockquote->bg,
-		context.caches.blockquote->outlines[0],
-		0.9);
+	return context.caches.blockquote->icon;
 }
 
 void PaintBlocks(

@@ -241,6 +241,10 @@ void Transcribes::summarize(not_null<HistoryItem*> item) {
 		return;
 	}
 
+	// WHY: the server-side summary would send the message text in the clear.
+	return;
+	#if 0
+
 	const auto id = item->fullId();
 	const auto translatedTo = item->history()->translatedTo();
 	const auto langCode = translatedTo
@@ -288,6 +292,7 @@ void Transcribes::summarize(not_null<HistoryItem*> item) {
 
 	item->setHasSummaryEntry();
 	_session->data().requestItemResize(item);
+	#endif
 }
 
 void Transcribes::checkSummaryToTranslate(FullMsgId id) {

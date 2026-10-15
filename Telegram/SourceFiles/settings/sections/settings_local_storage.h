@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "settings/settings_common_session.h"
 #include "storage/cache/storage_cache_database.h"
+#include "ui/round_rect.h"
 
 namespace Main {
 class Session;
@@ -53,12 +54,20 @@ public:
 		not_null<QWidget*> outer,
 		int maxVisibleHeight,
 		QRect clip) override;
+	const Ui::RoundRect *bottomSkipRounding() const override {
+		return &_bottomSkipRounding;
+	}
 
 private:
 	class Row;
 	class Chart;
 	class DeviceBar;
 	class ClearButton;
+
+	struct PendingStats {
+		Database::Stats stats;
+		Database::Stats statsBig;
+	};
 
 	void setupContent();
 	void updateChart();
@@ -100,6 +109,7 @@ private:
 	not_null<Ui::MediaSlider*> createLimitsSlider(
 		not_null<Ui::VerticalLayout*> container,
 		int valuesCount,
+		const QString &name,
 		Convert &&convert,
 		Value currentValue,
 		Callback &&callback);
@@ -110,6 +120,8 @@ private:
 
 	Database::Stats _stats;
 	Database::Stats _statsBig;
+	std::optional<PendingStats> _pendingStats;
+	bool _shown = false;
 
 	base::flat_map<uint16, not_null<Ui::SlideWrap<Row>*>> _rows;
 	std::array<bool, kChartPartsCount> _selected
@@ -124,6 +136,8 @@ private:
 	Ui::LabelSimple *_totalLabel = nullptr;
 	Ui::MediaSlider *_mediaSlider = nullptr;
 	Ui::LabelSimple *_mediaLabel = nullptr;
+
+	Ui::RoundRect _bottomSkipRounding;
 
 	int64 _totalSizeLimit = 0;
 	int64 _mediaSizeLimit = 0;

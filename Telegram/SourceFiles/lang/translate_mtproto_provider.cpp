@@ -80,6 +80,13 @@ public:
 			doneAll();
 		};
 
+		Q_UNUSED(to);
+		Q_UNUSED(doneFromList);
+		// WHY: the server-side call would send the message text in the clear.
+		failAll();
+		return;
+		#if 0
+
 		const auto firstPeer = PeerId(requests.front().peerId);
 		const auto allWithIds = ranges::all_of(
 			requests,
@@ -149,6 +156,7 @@ public:
 		}).fail([=](const MTP::Error &) {
 			failAll();
 		}).send();
+		#endif
 	}
 
 private:
