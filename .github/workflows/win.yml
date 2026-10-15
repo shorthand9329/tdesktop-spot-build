@@ -58,8 +58,8 @@ jobs:
         generator: [""]
 
     env:
-      UPLOAD_ARTIFACT: "false"
-      ONLY_CACHE: "true"
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
       PREPARE_PATH: "Telegram/build/prepare/prepare.py"
 
     defaults:
@@ -77,8 +77,7 @@ jobs:
 
       - name: Prepare directories.
         run: |
-          mkdir %userprofile%\TBuild\Libraries
-          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          mkdir %GITHUB_WORKSPACE%\TBuild\Libraries
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
           echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries${{ matrix.arch == 'x64' && '\win64' || '' }}>>%GITHUB_ENV%
 
