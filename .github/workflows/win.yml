@@ -58,8 +58,8 @@ jobs:
         generator: [""]
 
     env:
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
+      UPLOAD_ARTIFACT: "false"
+      ONLY_CACHE: "true"
       PREPARE_PATH: "Telegram/build/prepare/prepare.py"
 
     defaults:
@@ -67,6 +67,14 @@ jobs:
         shell: cmd
 
     steps:
+      - name: Report disk space.
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Select-Object Name,@{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}},@{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}} | Format-Table -AutoSize
+          "GITHUB_WORKSPACE=$env:GITHUB_WORKSPACE"
+          "USERPROFILE=$env:USERPROFILE"
+          "RUNNER_TEMP=$env:RUNNER_TEMP"
+
       - name: Prepare directories.
         run: |
           mkdir %userprofile%\TBuild\Libraries
