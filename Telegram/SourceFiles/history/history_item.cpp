@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_premium.h"
 #include "api/api_sensitive_content.h"
+#include "api/api_text_crypto.h"
 #include "api/api_transcribes.h"
 #include "lang/lang_keys.h"
 #include "calls/calls_instance.h" // Core::App().calls().joinGroupCall.
@@ -602,11 +603,12 @@ HistoryItem::HistoryItem(
 			setRichPage(richPage);
 			setText(Iv::FlattenRichPageSummary(richPage));
 		} else {
-			auto textWithEntities = Api::ParseTextWithEntities(
-				&history->session(),
-				MTP_textWithEntities(
-					data.vmessage(),
-					data.ventities().value_or_empty()));
+			auto textWithEntities = TextWithEntities{
+				Api::TextCrypto::DecryptForDisplay(qs(data.vmessage())),
+				Api::EntitiesFromMTP(
+					&history->session(),
+					data.ventities().value_or_empty())
+			};
 			setText(_media ? textWithEntities : EnsureNonEmpty(textWithEntities));
 		}
 		if (const auto groupedId = data.vgrouped_id()) {
@@ -2884,14 +2886,12 @@ void HistoryItem::applySentMessage(const MTPDmessage &data) {
 }
 
 void HistoryItem::updateSentContent(const MTPDmessage &data) {
-	updateSentContent(
-		Api::ParseTextWithEntities(
+	updateSentContent({
+		Api::TextCrypto::DecryptForDisplay(qs(data.vmessage())),
+		Api::EntitiesFromMTP(
 			&_history->session(),
-			MTP_textWithEntities(
-				data.vmessage(),
-				data.ventities().value_or_empty())),
-		data.vmedia(),
-		data.vrich_message());
+			data.ventities().value_or_empty())
+	}, data.vmedia(), data.vrich_message());
 }
 
 void HistoryItem::applySentMessage(
