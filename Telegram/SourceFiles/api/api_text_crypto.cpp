@@ -142,7 +142,19 @@ struct KeyData {
 
 [[nodiscard]] bool LooksEncrypted(const QString &text) {
 	const auto decoded = QByteArray::fromBase64(text.toUtf8());
-	return decoded.size() > kIvSize && ((decoded.size() - kIvSize) % kIvSize == 0);
+	if (decoded.size() <= kIvSize) {
+		return false;
+	}
+	const auto &key = Key();
+	if (key.bytes.size() != kKeySize) {
+		return false;
+	}
+	const auto plain = Crypt(
+		decoded.mid(kIvSize),
+		key.bytes,
+		decoded.mid(0, kIvSize),
+		false);
+	return plain.startsWith(kPlainPrefix);
 }
 
 } // namespace

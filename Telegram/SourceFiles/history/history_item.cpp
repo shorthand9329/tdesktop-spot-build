@@ -602,12 +602,11 @@ HistoryItem::HistoryItem(
 			setRichPage(richPage);
 			setText(Iv::FlattenRichPageSummary(richPage));
 		} else {
-			auto textWithEntities = TextWithEntities{
-				qs(data.vmessage()),
-				Api::EntitiesFromMTP(
-					&history->session(),
-					data.ventities().value_or_empty())
-			};
+			auto textWithEntities = Api::ParseTextWithEntities(
+				&history->session(),
+				MTP_textWithEntities(
+					data.vmessage(),
+					data.ventities().value_or_empty()));
 			setText(_media ? textWithEntities : EnsureNonEmpty(textWithEntities));
 		}
 		if (const auto groupedId = data.vgrouped_id()) {
@@ -2885,12 +2884,14 @@ void HistoryItem::applySentMessage(const MTPDmessage &data) {
 }
 
 void HistoryItem::updateSentContent(const MTPDmessage &data) {
-	updateSentContent({
-		qs(data.vmessage()),
-		Api::EntitiesFromMTP(
+	updateSentContent(
+		Api::ParseTextWithEntities(
 			&_history->session(),
-			data.ventities().value_or_empty())
-	}, data.vmedia(), data.vrich_message());
+			MTP_textWithEntities(
+				data.vmessage(),
+				data.ventities().value_or_empty())),
+		data.vmedia(),
+		data.vrich_message());
 }
 
 void HistoryItem::applySentMessage(
