@@ -50,6 +50,8 @@ jobs:
   windows:
     name: Windows (x64)
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     strategy:
       matrix:
@@ -275,4 +277,19 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: artifact\
-          retention-days: 1
+          retention-days: 7
+
+      - name: Publish release.
+        if: (env.UPLOAD_ARTIFACT == 'true') && (env.ONLY_CACHE == 'false')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v7.3.1-spot"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artifact/Telegram.exe --clobber
+          else
+            gh release create "$tag" artifact/Telegram.exe \
+              --title "Telegram Desktop 7.3.1 (spot build)" \
+              --notes "Windows x64 release build of ${GITHUB_SHA}."
+          fi
