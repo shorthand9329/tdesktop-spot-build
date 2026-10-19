@@ -286,10 +286,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v7.3.1-spot"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" artifact/Telegram.exe --clobber
+          repo="$GITHUB_REPOSITORY"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" artifact/Telegram.exe --repo "$repo" --clobber
           else
-            gh release create "$tag" artifact/Telegram.exe \
+            gh release create "$tag" artifact/Telegram.exe --repo "$repo" \
               --title "Telegram Desktop 7.3.1 (spot build)" \
               --notes "Windows x64 release build of ${GITHUB_SHA}."
           fi
