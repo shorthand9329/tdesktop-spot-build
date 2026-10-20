@@ -70,7 +70,22 @@ std::optional<DecryptedFile> DecryptPackage(const QByteArray &content) {
 	}
 	const auto plain = DecryptBytes(encrypted);
 	if (plain.isEmpty()) {
-		return std::nullopt;
+		// WHY: older packages were written before the payload was really
+		// encrypted, so the container holds the plain base64 of the plaintext.
+		auto legacy = DecryptedFile();
+		{
+			auto stream = QDataStream(
+				QByteArray::fromBase64(encrypted.toUtf8()));
+			stream.setVersion(QDataStream::Qt_5_15);
+			stream >> legacy.filename >> legacy.mime >> legacy.content;
+			if (stream.status() != QDataStream::Ok) {
+				return std::nullopt;
+			}
+		}
+		if (legacy.content.isEmpty()) {
+			return std::nullopt;
+		}
+		return legacy;
 	}
 	auto result = DecryptedFile();
 	{
