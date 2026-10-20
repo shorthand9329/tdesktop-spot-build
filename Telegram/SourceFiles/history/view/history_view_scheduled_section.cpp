@@ -650,8 +650,9 @@ void ScheduledWidget::sendingFilesConfirmed(
 	if (showSendingFilesError(*bundle)) {
 		return;
 	}
-	const auto compress = bundle->way.sendImagesAsPhotos();
-	const auto type = compress ? SendMediaType::Photo : SendMediaType::File;
+	// WHY: an encrypted photo has to travel as a document, the server cannot
+	// decode it to build the photo sizes.
+	const auto type = SendMediaType::File;
 	auto action = prepareSendAction(options);
 	action.clearDraft = false;
 	auto &api = session().api();
