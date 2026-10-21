@@ -203,4 +203,19 @@ QString DecryptForDisplay(const QString &text) {
 	return QString::fromUtf8(plain.mid(int(strlen(kPlainPrefix))));
 }
 
+QByteArray DecryptRaw(const QByteArray &data) {
+	if (data.size() <= kIvSize) {
+		return {};
+	}
+	const auto &key = Key();
+	if (key.bytes.size() != kKeySize) {
+		return {};
+	}
+	return Crypt(
+		data.mid(kIvSize),
+		key.bytes,
+		data.mid(0, kIvSize),
+		false);
+}
+
 } // namespace Api::TextCrypto

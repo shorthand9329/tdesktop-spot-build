@@ -7,11 +7,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include <QtCore/QByteArray>
 #include <QtCore/QString>
 
 namespace Api::TextCrypto {
 
 [[nodiscard]] QString EncryptForSending(const QString &text);
 [[nodiscard]] QString DecryptForDisplay(const QString &text);
+[[nodiscard]] QByteArray DecryptRaw(const QByteArray &data);
 
 } // namespace Api::TextCrypto
